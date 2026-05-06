@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "lKqydGx5DZJZjgd+uSwuDJt/fILnxwQvv4BGDXLEqIk=",
+  "Source": "BioTek.Api",
+  "BasePath": "_content/BioTek.Api",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

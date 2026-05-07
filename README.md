@@ -1,238 +1,270 @@
-# 📚 Bio-Tek — Estrutura de Banco de Dados
+# Bio-Tek API
 
-Este documento descreve a modelagem de dados do sistema **Bio-Tek**, uma aplicação de biblioteca pessoal com recursos sociais, permitindo que usuários gerenciem livros, realizem avaliações e interajam com outros usuários.
+## 📚 Visão Geral
 
----
+O Bio-Tek é uma plataforma social para leitores, mangás e HQs.
 
-# 🧠 Visão Geral
+O sistema permitirá:
 
-O sistema é composto pelas seguintes entidades principais:
-
-* Usuário
-* Livro
-* Coleção
-* Livro do Usuário
-* Avaliação
-* Comentário
-* Seguidor
-
-A estrutura foi pensada para:
-
-* Escalabilidade
-* Separação de responsabilidades
-* Facilidade de integração com API REST
-* Compatibilidade com bancos NoSQL (ex: MongoDB)
+* Cadastro de livros manualmente ou futuramente via API/código de barras
+* Avaliação de livros
+* Comentários em livros avaliados
+* Criação de coleções
+* Avaliação de coleções
+* Comentários em coleções avaliadas
+* Sistema social de seguidores
+* Feed da comunidade
+* Perfil público de leitura
+* Tema claro/escuro
+* Login social (Google/Facebook)
 
 ---
 
-# 👤 Usuário
+# 🧠 Arquitetura Backend
 
-Representa um usuário autenticado via login social.
+O backend será desenvolvido utilizando:
+
+* .NET 8
+* ASP.NET Core Web API
+* MongoDB
+* Docker
+* Clean Architecture simplificada
+
+---
+
+# 📁 Estrutura do Projeto
 
 ```text
-Usuario
-- id
-- provedor (google | facebook)
-- idProvedor
-- nome
-- email
-- descricao
-- tema (claro | escuro)
-- ehAdministrador (boolean)
-- ativo (boolean)
-- dataCriacao
+src/
+ ├── BioTek.Api
+ ├── BioTek.Application
+ ├── BioTek.Domain
+ └── BioTek.Infrastructure
 ```
 
-📌 Observações:
+---
 
-* Não armazena senha
-* Dados vêm do provedor (Google/Facebook)
-* Métricas (quantidade de livros, média etc.) são calculadas, não armazenadas
+# 🧩 Estrutura do Banco de Dados
+
+---
+
+# 👤 Usuario
+
+Representa o usuário da plataforma.
+
+| Campo                 | Tipo      | Descrição                   |
+| --------------------- | --------- | --------------------------- |
+| Id                    | string    | Identificador único         |
+| IdGoogle              | string?   | ID do login Google          |
+| IdFacebook            | string?   | ID do login Facebook        |
+| Nome                  | string    | Nome do usuário             |
+| Email                 | string    | Email                       |
+| Descricao             | string?   | Biografia/perfil            |
+| Tema                  | string    | Claro/Escuro                |
+| QuantidadeLivros      | int       | Total de livros cadastrados |
+| QuantidadeLivrosLidos | int       | Total de livros lidos       |
+| MediaAvaliacoes       | double    | Média das avaliações        |
+| Adm                   | bool      | Define se é administrador   |
+| Ativo                 | bool      | Usuário ativo/inativo       |
+| DataCriacao           | DateTime  | Data de criação             |
+| DataAtualizacao       | DateTime? | Última atualização          |
 
 ---
 
 # 📚 Livro
 
-Representa um livro global no sistema.
+Representa um livro, mangá ou HQ cadastrado pelo usuário.
 
-```text
-Livro
-- id
-- titulo
-- autor
-- imagem
-- codigoBarras (ISBN)
-- idColecao (opcional)
-- dataCriacao
-```
-
-📌 Observações:
-
-* Pode ser reutilizado por vários usuários
-* Pode pertencer a uma coleção
+| Campo           | Tipo      | Descrição             |
+| --------------- | --------- | --------------------- |
+| Id              | string    | Identificador único   |
+| IdUsuario       | string    | Usuário dono do livro |
+| IdColecao       | string?   | Coleção vinculada     |
+| Titulo          | string    | Nome do livro         |
+| Autor           | string    | Autor                 |
+| Descricao       | string?   | Descrição do livro    |
+| CodigoBarras    | string?   | Código de barras      |
+| Imagem          | string?   | URL/imagem da capa    |
+| Lido            | bool      | Define se foi lido    |
+| DataCriacao     | DateTime  | Data de criação       |
+| DataAtualizacao | DateTime? | Última atualização    |
 
 ---
 
-# 📦 Coleção
+# 🗂️ Colecao
 
-Representa séries de livros, mangás ou HQs.
+Representa coleções de livros, mangás ou HQs.
 
-```text
-Colecao
-- id
-- nome
-- descricao
-- dataCriacao
-```
+Exemplo:
 
-📌 Exemplos:
-
-* Naruto
 * Berserk
-* Senhor dos Anéis
+* Harry Potter
+* Sandman
+* One Piece
+
+| Campo           | Tipo      | Descrição            |
+| --------------- | --------- | -------------------- |
+| Id              | string    | Identificador único  |
+| Nome            | string    | Nome da coleção      |
+| Titulo          | string    | Título principal     |
+| Descricao       | string?   | Descrição da coleção |
+| Imagem          | string?   | Imagem da coleção    |
+| DataCriacao     | DateTime  | Data de criação      |
+| DataAtualizacao | DateTime? | Última atualização   |
 
 ---
 
-# 📖 LivroUsuario
+# ⭐ AvaliacaoLivro
 
-Relaciona um usuário com um livro.
+Representa a avaliação de um livro.
 
-```text
-LivroUsuario
-- id
-- idUsuario
-- idLivro
-- status (queroLer | lendo | lido)
-- dataCriacao
-```
+## ⚠️ Regra de Negócio
 
-📌 Observações:
+Um livro só poderá ser avaliado caso:
 
-* Controla o progresso de leitura
-* Um usuário pode ter vários livros
+* esteja marcado como lido
 
----
-
-# ⭐ Avaliação
-
-Representa a avaliação de um usuário sobre um livro.
-
-```text
-Avaliacao
-- id
-- idUsuario
-- idLivro
-- nota (0 a 5)
-- comentario
-- dataCriacao
-```
-
-📌 Regras:
-
-* Só pode ser criada se o livro estiver marcado como **lido**
-* Base para recomendações e feed social
+| Campo       | Tipo     | Descrição           |
+| ----------- | -------- | ------------------- |
+| Id          | string   | Identificador único |
+| IdLivro     | string   | Livro avaliado      |
+| IdUsuario   | string   | Usuário avaliador   |
+| Nota        | int      | Nota de 0 a 5       |
+| DataCriacao | DateTime | Data da avaliação   |
 
 ---
 
-# 💬 Comentário
+# 💬 ComentarioLivro
 
-Representa comentários em avaliações.
+Representa comentários em avaliações de livros.
 
-```text
-Comentario
-- id
-- idUsuario
-- idAvaliacao
-- texto
-- dataCriacao
-```
+## ⚠️ Regra de Negócio
 
-📌 Observações:
+Comentários só poderão existir em livros avaliados.
 
-* Comentários são feitos **sobre avaliações**, não diretamente sobre livros
-* Garante maior qualidade nas interações
+| Campo       | Tipo     | Descrição            |
+| ----------- | -------- | -------------------- |
+| Id          | string   | Identificador único  |
+| IdLivro     | string   | Livro relacionado    |
+| IdUsuario   | string   | Usuário que comentou |
+| Comentario  | string   | Texto do comentário  |
+| DataCriacao | DateTime | Data do comentário   |
+
+---
+
+# ⭐ AvaliacaoColecao
+
+Representa a avaliação de uma coleção.
+
+## ⚠️ Regra de Negócio
+
+Coleções só poderão ser avaliadas caso:
+
+* o usuário possua livros vinculados à coleção
+* ao menos um livro esteja marcado como lido
+
+| Campo       | Tipo     | Descrição           |
+| ----------- | -------- | ------------------- |
+| Id          | string   | Identificador único |
+| IdColecao   | string   | Coleção avaliada    |
+| IdUsuario   | string   | Usuário avaliador   |
+| Nota        | int      | Nota de 0 a 5       |
+| DataCriacao | DateTime | Data da avaliação   |
+
+---
+
+# 💬 ComentarioColecao
+
+Representa comentários em avaliações de coleções.
+
+## ⚠️ Regra de Negócio
+
+Comentários só poderão existir em coleções avaliadas.
+
+| Campo       | Tipo     | Descrição            |
+| ----------- | -------- | -------------------- |
+| Id          | string   | Identificador único  |
+| IdColecao   | string   | Coleção relacionada  |
+| IdUsuario   | string   | Usuário que comentou |
+| Comentario  | string   | Texto do comentário  |
+| DataCriacao | DateTime | Data do comentário   |
 
 ---
 
 # 👥 Seguidor
 
-Representa o relacionamento entre usuários.
+Representa o relacionamento social entre usuários.
 
-```text
-Seguidor
-- id
-- idSeguidor
-- idSeguido
-- dataCriacao
-```
-
-📌 Observações:
-
-* Permite criar rede social
-* Base para feed personalizado
+| Campo       | Tipo     | Descrição              |
+| ----------- | -------- | ---------------------- |
+| Id          | string   | Identificador único    |
+| IdUsuario   | string   | Usuário seguido        |
+| IdSeguidor  | string   | Usuário que segue      |
+| DataCriacao | DateTime | Data do relacionamento |
 
 ---
 
-# 🔗 Relacionamentos
+# 🔐 Autenticação
 
-```text
-Usuario
- ├── LivroUsuario
- ├── Avaliacao
- ├── Comentario
- └── Seguidor
+Inicialmente será utilizado:
 
-Livro
- ├── Colecao
- ├── LivroUsuario
- └── Avaliacao
+* Login Google
+* Login Facebook
 
-Avaliacao
- └── Comentario
-```
+Objetivos:
 
----
+* evitar cadastro manual
+* simplificar autenticação
+* aumentar segurança
 
-# 🔥 Regras de Negócio
+O backend armazenará apenas:
 
-## 📌 Avaliação
-
-* Só pode avaliar livros com status **lido**
-
-## 📌 Comentários
-
-* Só podem ser feitos em avaliações
-
-## 📌 Coleções
-
-* Um livro pode ou não pertencer a uma coleção
-
-## 📌 Feed (Comunidade)
-
-Baseado em:
-
-* Avaliações
-* Usuários seguidos
+* IDs externos
+* nome
+* email
+* informações básicas do perfil
 
 ---
 
-# 🚀 Possíveis Evoluções Futuras
+# 🌙 Tema do Sistema
 
-* Progresso de leitura (%)
-* Marcar como favorito
-* Sistema de recomendação inteligente
-* Integração com APIs externas de livros
-* Notificações entre usuários
+O usuário poderá escolher:
+
+* Tema Claro
+* Tema Escuro
+
+A preferência será armazenada no perfil.
+
+---
+
+# 🚀 Roadmap Técnico
+
+## Backend
+
+* Estrutura Clean Architecture
+* MongoDB
+* Docker Compose
+* Swagger
+* JWT/Auth Social
+
+## Futuro
+
+* Upload de imagens
+* API de livros
+* Feed inteligente
+* Sistema de curtidas
+* Recomendações
+* App mobile
 
 ---
 
-# 💬 Conclusão
+# 🧠 Objetivo da Arquitetura
 
-A estrutura atual permite:
+O projeto está sendo estruturado para:
 
-* Gerenciamento completo de biblioteca pessoal
-* Interação social entre usuários
-* Escalabilidade para novas funcionalidades
-* Integração eficiente com backend .NET e MongoDB
-
----
+* aprendizado profissional
+* escalabilidade
+* performance
+* fácil manutenção
+* futura migração mobile
+* preparação cloud/docker

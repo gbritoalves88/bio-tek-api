@@ -1,0 +1,16 @@
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Application.deps.json
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Application.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Application.pdb
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Domain.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Domain.pdb
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.csproj.AssemblyReference.cache
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.AssemblyInfoInputs.cache
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.AssemblyInfo.cs
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.csproj.CoreCompileInputs.cache
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.sourcelink.json
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.A.4FA0D96E.Up2Date
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\refint\BioTek.Application.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.pdb
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\ref\BioTek.Application.dll

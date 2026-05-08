@@ -613,7 +613,8 @@
         "type": "project",
         "framework": ".NETCoreApp,Version=v8.0",
         "dependencies": {
-          "BioTek.Domain": "1.0.0"
+          "BioTek.Domain": "1.0.0",
+          "BioTek.Infrastructure": "1.0.0"
         },
         "compile": {
           "bin/placeholder/BioTek.Application.dll": {}
@@ -1905,6 +1906,7 @@
   "projectFileDependencyGroups": {
     "net8.0": [
       "BioTek.Application >= 1.0.0",
+      "BioTek.Domain >= 1.0.0",
       "BioTek.Infrastructure >= 1.0.0",
       "Google.Apis.Auth >= 1.68.0",
       "Microsoft.AspNetCore.Authentication.JwtBearer >= 8.0.14",
@@ -1939,6 +1941,9 @@
           "projectReferences": {
             "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Application\\BioTek.Application.csproj": {
               "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Application\\BioTek.Application.csproj"
+            },
+            "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj": {
+              "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj"
             },
             "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj": {
               "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj"

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BioTek.Application")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+95bb4ea95f62a10a218840b8518c498cacefe90f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7df17dee6ed405988fbd9c8e0086ac75b6557be6")]
 [assembly: System.Reflection.AssemblyProductAttribute("BioTek.Application")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BioTek.Application")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

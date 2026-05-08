@@ -29,6 +29,9 @@
               "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Application\\BioTek.Application.csproj": {
                 "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Application\\BioTek.Application.csproj"
               },
+              "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj": {
+                "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj"
+              },
               "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj": {
                 "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj"
               }
@@ -114,6 +117,9 @@
             "projectReferences": {
               "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj": {
                 "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Domain\\BioTek.Domain.csproj"
+              },
+              "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj": {
+                "projectPath": "C:\\repositorio\\bio-tek-api\\bio-tek-api\\src\\BioTek.Infrastructure\\BioTek.Infrastructure.csproj"
               }
             }
           }

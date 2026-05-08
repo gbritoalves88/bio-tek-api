@@ -1,0 +1,65 @@
+using System.Security.Claims;
+using BioTek.Domain.Entities;
+using BioTek.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+
+namespace BioTek.Api.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class LivroController : ControllerBase
+{
+    private readonly ILivroService _livroService;
+
+    public LivroController(ILivroService livroService)
+    {
+        _livroService = livroService;
+    }
+
+    private string GetUsuarioId()
+    {
+        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetMeusLivros()
+    {
+        var livros = await _livroService.GetPorUsuarioAsync(GetUsuarioId());
+        return Ok(livros);
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetPorId(string id)
+    {
+        var livro = await _livroService.GetPorIdAsync(id);
+        if (livro == null) return NotFound();
+        return Ok(livro);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> Criar([FromBody] Livro livro)
+    {
+        livro.IdUsuario = GetUsuarioId();
+        var novo = await _livroService.CriarAsync(livro);
+        return CreatedAtAction(nameof(GetPorId), new { id = novo.Id }, novo);
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Atualizar(string id, [FromBody] Livro livro)
+    {
+        var atualizado = await _livroService.AtualizarAsync(id, livro);
+        if (atualizado == null) return NotFound();
+        return Ok(atualizado);
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Deletar(string id)
+    {
+        var deletado = await _livroService.DeletarAsync(id);
+        if (!deletado) return NotFound();
+        return NoContent();
+    }
+}

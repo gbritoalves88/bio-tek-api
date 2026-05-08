@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BioTek.Application\BioTek.Application.csproj" />
     <ProjectReference Include="..\BioTek.Infrastructure\BioTek.Infrastructure.csproj" />
+    <ProjectReference Include="..\BioTek.Domain\BioTek.Domain.csproj" />
   </ItemGroup>
 
 </Project>

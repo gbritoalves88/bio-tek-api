@@ -3,9 +3,11 @@ using BioTek.Domain.Interfaces;
 using BioTek.Infrastructure.Data;
 using BioTek.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace BioTek.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class UsuarioController : ControllerBase

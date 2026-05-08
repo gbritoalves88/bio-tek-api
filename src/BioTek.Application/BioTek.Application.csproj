@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BioTek.Domain\BioTek.Domain.csproj" />
+    <ProjectReference Include="..\BioTek.Infrastructure\BioTek.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

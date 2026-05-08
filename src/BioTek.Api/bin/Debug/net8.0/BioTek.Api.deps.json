@@ -9,6 +9,7 @@
       "BioTek.Api/1.0.0": {
         "dependencies": {
           "BioTek.Application": "1.0.0",
+          "BioTek.Domain": "1.0.0",
           "BioTek.Infrastructure": "1.0.0",
           "Google.Apis.Auth": "1.68.0",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "8.0.14",
@@ -344,7 +345,8 @@
       },
       "BioTek.Application/1.0.0": {
         "dependencies": {
-          "BioTek.Domain": "1.0.0"
+          "BioTek.Domain": "1.0.0",
+          "BioTek.Infrastructure": "1.0.0"
         },
         "runtime": {
           "BioTek.Application.dll": {

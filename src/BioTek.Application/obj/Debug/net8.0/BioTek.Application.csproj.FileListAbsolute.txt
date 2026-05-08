@@ -2,7 +2,9 @@ C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\B
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Application.dll
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Application.pdb
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Domain.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Infrastructure.dll
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Domain.pdb
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\bin\Debug\net8.0\BioTek.Infrastructure.pdb
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.csproj.AssemblyReference.cache
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.GeneratedMSBuildEditorConfig.editorconfig
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Application\obj\Debug\net8.0\BioTek.Application.AssemblyInfoInputs.cache

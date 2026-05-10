@@ -1,12 +1,18 @@
 using System.Text;
+using BioTek.Application.Services;
+using BioTek.Domain.Entities;
+using BioTek.Domain.Interfaces;
 using BioTek.Infrastructure.Data;
+using BioTek.Infrastructure.Repositories;
 using BioTek.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ===== JWT =====
+// ==========================================
+// 1. CONFIGURAÇÃO JWT (Autenticação)
+// ==========================================
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
 
@@ -31,21 +37,62 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// ===== TokenService =====
+// ==========================================
+// 2. SERVIÇOS DE INFRAESTRUTURA
+// ==========================================
+
+// Token JWT
 builder.Services.AddSingleton<TokenService>();
 
-// ===== MongoDB =====
+// MongoDB (Singleton = conexão única)
 builder.Services.AddSingleton(sp =>
 {
     var connectionString = builder.Configuration.GetConnectionString("MongoDb");
     return new MongoDbContext(connectionString!, "BioTek");
 });
 
-// ===== Controllers =====
+// ==========================================
+// 3. REPOSITÓRIOS (acesso a dados)
+// ==========================================
+
+// Usuario
+builder.Services.AddScoped<IRepository<Usuario>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Usuario>(context, "Usuarios");
+});
+
+// Livro
+builder.Services.AddScoped<IRepository<Livro>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Livro>(context, "Livros");
+});
+
+// AvaliacaoLivro
+builder.Services.AddScoped<IRepository<AvaliacaoLivro>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<AvaliacaoLivro>(context, "AvaliacoesLivros");
+});
+
+// ==========================================
+// 4. SERVICES (regras de negócio)
+// ==========================================
+
+builder.Services.AddScoped<IUsuarioService, UsuarioService>();
+builder.Services.AddScoped<ILivroService, LivroService>();
+builder.Services.AddScoped<IAvaliacaoLivroService, AvaliacaoLivroService>();
+
+// ==========================================
+// 5. CONTROLLERS + SWAGGER
+// ==========================================
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
+    // Configuração do botão Authorize no Swagger
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -72,6 +119,10 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// ==========================================
+// 6. PIPELINE HTTP
+// ==========================================
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -81,9 +132,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-app.UseAuthentication();  // ⬅️ Valida o token
-app.UseAuthorization();   // ⬅️ Verifica [Authorize]
-
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
+
 app.Run();

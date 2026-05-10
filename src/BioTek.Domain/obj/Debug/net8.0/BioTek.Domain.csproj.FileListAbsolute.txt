@@ -1,11 +1,11 @@
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.deps.json
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.dll
+C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.pdb
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.GeneratedMSBuildEditorConfig.editorconfig
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.AssemblyInfoInputs.cache
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.AssemblyInfo.cs
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.csproj.CoreCompileInputs.cache
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.sourcelink.json
-C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.deps.json
-C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.dll
-C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\bin\Debug\net8.0\BioTek.Domain.pdb
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.dll
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\refint\BioTek.Domain.dll
 C:\repositorio\bio-tek-api\bio-tek-api\src\BioTek.Domain\obj\Debug\net8.0\BioTek.Domain.pdb

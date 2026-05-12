@@ -31,9 +31,15 @@ public class UsuarioService : IUsuarioService
 
     public async Task<Usuario> CriarAsync(Usuario usuario)
     {
-        var existentes = await _usuarioRepository.FindAsync(u => u.Email == usuario.Email);
-        if (existentes.Any())
+        // 🔹 Regra: Email único
+        var emailExiste = await _usuarioRepository.FindAsync(u => u.Email == usuario.Email);
+        if (emailExiste.Any())
             throw new InvalidOperationException("Email já cadastrado");
+
+        // 🔹 Regra: Nickname único
+        var nicknameExiste = await _usuarioRepository.FindAsync(u => u.Nickname == usuario.Nickname);
+        if (nicknameExiste.Any())
+            throw new InvalidOperationException("Nickname já está em uso");
 
         usuario.Id = Guid.NewGuid().ToString();
         usuario.DataCriacao = DateTime.UtcNow;
@@ -68,4 +74,9 @@ public class UsuarioService : IUsuarioService
         return await _usuarioRepository.GetByIdAsync(id);
     }
 
+    public async Task<Usuario?> GetPorNicknameAsync(string nickname)
+    {
+        var usuarios = await _usuarioRepository.FindAsync(u => u.Nickname == nickname);
+        return usuarios.FirstOrDefault();
+    }
 }

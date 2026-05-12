@@ -7,6 +7,7 @@ public class Usuario : Common.BaseEntity
     public string? IdGoogle { get; set; }
     public string? IdFacebook { get; set; }
     public string Nome { get; set; } = string.Empty;
+    public string Nickname { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string? Descricao { get; set; }
     public TemaUsuario Tema { get; set; } = TemaUsuario.Escuro; // ⬅️ Enum

@@ -76,6 +76,13 @@ builder.Services.AddScoped<IRepository<AvaliacaoLivro>>(sp =>
     return new MongoRepository<AvaliacaoLivro>(context, "AvaliacoesLivros");
 });
 
+// Seguidor
+builder.Services.AddScoped<IRepository<Seguidor>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Seguidor>(context, "Seguidores");
+});
+
 // ==========================================
 // 4. SERVICES (regras de negócio)
 // ==========================================
@@ -83,6 +90,7 @@ builder.Services.AddScoped<IRepository<AvaliacaoLivro>>(sp =>
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 builder.Services.AddScoped<ILivroService, LivroService>();
 builder.Services.AddScoped<IAvaliacaoLivroService, AvaliacaoLivroService>();
+builder.Services.AddScoped<ISeguidorService, SeguidorService>();
 
 // ==========================================
 // 5. CONTROLLERS + SWAGGER

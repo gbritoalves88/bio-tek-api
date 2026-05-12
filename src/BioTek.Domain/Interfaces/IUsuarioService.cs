@@ -6,7 +6,8 @@ public interface IUsuarioService
 {
     Task<IEnumerable<Usuario>> GetUsuariosAsync();
      Task<Usuario?> GetPorIdAsync(string id);
-    Task<Usuario> CriarAsync(Usuario avaliacaoLivro);
-    Task<Usuario?> AtualizarAsync(string id, Usuario avaliacaoLivro);
+    Task<Usuario> CriarAsync(Usuario usuario);
+    Task<Usuario?> GetPorNicknameAsync(string nickname);
+    Task<Usuario?> AtualizarAsync(string id, Usuario usuario);
     Task<bool> DeletarAsync(string id);
 }

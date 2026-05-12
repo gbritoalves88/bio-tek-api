@@ -31,12 +31,12 @@ public class ComentarioLivroService : IComentarioLivroService
         if (comentario.Comentario.Length > 200)
             throw new InvalidOperationException("Comentário passou do limite de 200 caracteres");
 
-        // 2. Buscar o livro para saber quem é o dono
+        // Buscar o livro para saber quem é o dono
         var livro = await _livroRepository.GetByIdAsync(comentario.IdLivro);
         if (livro == null)
             throw new InvalidOperationException("Livro não encontrado");
 
-        // 3. Regra: o DONO do livro precisa ter avaliado
+        // DONO do livro precisa ter avaliado
         var avaliacoesDoDono = await _avaliacaoRepository.FindAsync(
             a => a.IdLivro == comentario.IdLivro && a.IdUsuario == livro.IdUsuario);
 

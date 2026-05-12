@@ -39,6 +39,15 @@ public class UsuarioController : ControllerBase
         return Ok(usuario);
     }
 
+    // GET: api/Usuario/nickname/{nickname}
+    [HttpGet("nickname/{nickname}")]
+    public async Task<IActionResult> GetPorNickname(string nickname)
+    {
+        var usuario = await _usuarioService.GetPorNicknameAsync(nickname);
+        if (usuario == null) return NotFound();
+        return Ok(usuario);
+    }
+
     // POST: api/usuario
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] Usuario usuario)

@@ -2,33 +2,56 @@
 
 ## 📚 Visão Geral
 
-O Bio-Tek é uma plataforma social para leitores, mangás e HQs.
+O **Bio-Tek** é uma plataforma social para leitores de:
 
-O sistema permitirá:
+- 📖 Livros
+- 📘 Mangás
+- 📙 HQs
 
-* Cadastro de livros manualmente ou futuramente via API/código de barras
-* Avaliação de livros
-* Comentários em livros avaliados
-* Criação de coleções
-* Avaliação de coleções
-* Comentários em coleções avaliadas
-* Sistema social de seguidores
-* Feed da comunidade
-* Perfil público de leitura
-* Tema claro/escuro
-* Login social (Google/Facebook)
+O sistema foi idealizado para permitir que usuários organizem suas leituras, avaliem obras, compartilhem opiniões e interajam socialmente com outros leitores.
+
+---
+
+# 🚀 Funcionalidades
+
+## ✅ Implementadas
+
+- Cadastro manual de livros
+- Avaliação de livros
+- Comentários em avaliações de livros
+- Criação de coleções
+- Avaliação de coleções
+- Comentários em avaliações de coleções
+- Sistema social de seguidores
+- Perfil público com nickname (`@usuario`)
+- Tema claro/escuro
+- Login com Google OAuth
+- JWT Authentication
+- Endpoints protegidos
+
+---
+
+## ⬜ Em desenvolvimento
+
+- Feed da comunidade
+- Upload de imagens
+- Login Facebook
+- Deploy cloud
+- Docker Compose
 
 ---
 
 # 🧠 Arquitetura Backend
 
-O backend será desenvolvido utilizando:
+O backend foi desenvolvido utilizando:
 
-* .NET 8
-* ASP.NET Core Web API
-* MongoDB
-* Docker
-* Clean Architecture simplificada
+- .NET 8
+- ASP.NET Core Web API
+- MongoDB
+- Clean Architecture
+- JWT Bearer Authentication
+- Google OAuth 2.0
+- Swagger/OpenAPI
 
 ---
 
@@ -37,12 +60,27 @@ O backend será desenvolvido utilizando:
 ```text
 src/
  ├── BioTek.Api
+ │    ├── Controllers
+ │    ├── Middlewares
+ │    ├── Program.cs
+ │    └── Swagger
+ │
  ├── BioTek.Application
+ │    ├── Services
+ │    ├── DTOs
+ │    └── Rules
+ │
  ├── BioTek.Domain
+ │    ├── Common
+ │    ├── Entities
+ │    ├── Enums
+ │    └── Interfaces
+ │
  └── BioTek.Infrastructure
-```
-
----
+      ├── MongoDB
+      ├── Repositories
+      ├── Authentication
+      └── Configurations
 
 # 🧩 Estrutura do Banco de Dados
 

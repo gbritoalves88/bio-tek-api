@@ -97,6 +97,20 @@ builder.Services.AddScoped<IRepository<Colecao>>(sp =>
     return new MongoRepository<Colecao>(context, "Colecao");
 });
 
+// AvaliacaoColecao
+builder.Services.AddScoped<IRepository<AvaliacaoColecao>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<AvaliacaoColecao>(context, "AvaliacoesColecoes");
+});
+
+// ComentarioColecao
+builder.Services.AddScoped<IRepository<ComentarioColecao>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<ComentarioColecao>(context, "ComentariosColecoes");
+});
+
 // ==========================================
 // 4. SERVICES (regras de negócio)
 // ==========================================
@@ -107,6 +121,8 @@ builder.Services.AddScoped<IAvaliacaoLivroService, AvaliacaoLivroService>();
 builder.Services.AddScoped<ISeguidorService, SeguidorService>();
 builder.Services.AddScoped<IComentarioLivroService, ComentarioLivroService>();
 builder.Services.AddScoped<IColecaoService, ColecaoService>();
+builder.Services.AddScoped<IComentarioColecaoService, ComentarioColecaoService>();
+builder.Services.AddScoped<IAvaliacaoColecaoService, AvaliacaoColecaoService>();
 
 // ==========================================
 // 5. CONTROLLERS + SWAGGER

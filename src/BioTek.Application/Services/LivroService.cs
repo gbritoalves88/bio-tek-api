@@ -1,6 +1,9 @@
+using System.Text.Json;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
+
+
 
 
 namespace BioTek.Application.Services;
@@ -9,12 +12,15 @@ public class LivroService : ILivroService
 {
     private readonly IRepository<Livro> _livroRepository;
     private readonly IRepository<Colecao> _colecaoRepository;
+    private readonly HttpClient _httpClient;
 
-    public LivroService(IRepository<Livro> livroRepository, IRepository<Colecao> colecaoRepository)
+    public LivroService(IRepository<Livro> livroRepository, IRepository<Colecao> colecaoRepository, HttpClient httpClient)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
+        _httpClient = httpClient;
     }
+
 
     public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId)
     {
@@ -43,6 +49,56 @@ public class LivroService : ILivroService
         await _livroRepository.AddAsync(livro);
         return livro;
     }
+
+    public async Task<Livro?> BuscarPorIsbnAsync(string isbn)
+    {
+        var url = $"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data";
+        var response = await _httpClient.GetStringAsync(url);
+        var json = JsonDocument.Parse(response);
+
+        var key = $"ISBN:{isbn}";
+        if (!json.RootElement.TryGetProperty(key, out var bookElement))
+            return null;
+
+        return new Livro
+        {
+            Titulo = bookElement.GetProperty("title").GetString() ?? "",
+            Autor = GetAutor(bookElement),
+            Descricao = GetDescricao(bookElement),
+            Imagem = GetCapa(bookElement),
+            CodigoBarras = isbn,
+            Status = StatusLeitura.QueroLer
+        };
+    }
+
+    private string GetAutor(JsonElement book)
+    {
+        if (book.TryGetProperty("authors", out var authors) && authors.GetArrayLength() > 0)
+            return authors[0].GetProperty("name").GetString() ?? "Autor desconhecido";
+        return "Autor desconhecido";
+    }
+
+    private string? GetDescricao(JsonElement book)
+    {
+        if (book.TryGetProperty("notes", out var notes))
+            return notes.GetString();
+        if (book.TryGetProperty("subtitle", out var subtitle))
+            return subtitle.GetString();
+        return null;
+    }
+
+    private string? GetCapa(JsonElement book)
+    {
+        if (book.TryGetProperty("cover", out var cover))
+        {
+            if (cover.TryGetProperty("large", out var large))
+                return large.GetString();
+            if (cover.TryGetProperty("medium", out var medium))
+                return medium.GetString();
+        }
+        return null;
+    }
+
 
     public async Task<Livro?> AtualizarAsync(string id, Livro livro)
     {

@@ -26,6 +26,63 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// Login mock para testes (convidado)
+    /// </summary>
+    [HttpPost("mock")]
+    public async Task<IActionResult> LoginMock([FromBody] SocialLoginRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Nome) || string.IsNullOrEmpty(request.Email))
+            return BadRequest(new { mensagem = "Nome e Email são obrigatórios para o mock" });
+
+        var googleId = request.Id;
+        var nome = request.Nome;
+        var email = request.Email;
+
+        var usuarios = await _usuarioRepository.FindAsync(
+            u => u.IdGoogle == googleId || u.Email == email);
+
+        var usuario = usuarios.FirstOrDefault();
+        bool novoUsuario = false;
+
+        if (usuario == null)
+        {
+            novoUsuario = true;
+            usuario = new Usuario
+            {
+                IdGoogle = googleId,
+                Nome = nome,
+                Email = email
+            };
+            await _usuarioRepository.AddAsync(usuario);
+        }
+        else
+        {
+            usuario.Nome = nome;
+            usuario.IdGoogle ??= googleId;
+            usuario.DataAtualizacao = DateTime.UtcNow;
+            await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+        }
+
+        var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
+
+        return Ok(new
+        {
+            token,
+            novoUsuario,
+            usuario = new
+            {
+                usuario.Id,
+                usuario.Nome,
+                usuario.Email,
+                usuario.Nickname,
+                usuario.Descricao,
+                usuario.Avatar,
+                usuario.Tema
+            }
+        });
+    }
+
+    /// <summary>
     /// Login/Registro com Google
     /// </summary>
     [HttpPost("google")]
@@ -36,7 +93,6 @@ public class AuthController : ControllerBase
 
         try
         {
-            Console.WriteLine("🔑 Iniciando validação oficial...");
 
             var clientId = _configuration["Authentication:Google:ClientId"]!;
             var settings = new GoogleJsonWebSignature.ValidationSettings
@@ -47,19 +103,19 @@ public class AuthController : ControllerBase
             // ✅ Validação oficial: verifica assinatura, expiração, aud e iss
             var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
 
-            Console.WriteLine($"✅ Token válido! Email: {payload.Email}");
-
             var googleId = payload.Subject;
             var nome = payload.Name;
             var email = payload.Email;
 
-            // Busca ou cria usuário
             var usuarios = await _usuarioRepository.FindAsync(
                 u => u.IdGoogle == googleId || u.Email == email);
+
             var usuario = usuarios.FirstOrDefault();
+            bool novoUsuario = false; // ⬅️ NOVO
 
             if (usuario == null)
             {
+                novoUsuario = true; // ⬅️ NOVO
                 usuario = new Usuario
                 {
                     IdGoogle = googleId,
@@ -78,7 +134,21 @@ public class AuthController : ControllerBase
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
 
-            return Ok(new { token, usuario });
+            return Ok(new
+            {
+                token,
+                novoUsuario, // ⬅️ NOVO
+                usuario = new
+                {
+                    usuario.Id,
+                    usuario.Nome,
+                    usuario.Email,
+                    usuario.Nickname,
+                    usuario.Descricao,
+                    usuario.Avatar,
+                    usuario.Tema
+                }
+            });
         }
         catch (InvalidJwtException ex)
         {

@@ -49,17 +49,21 @@ public class UsuarioService : IUsuarioService
         await _usuarioRepository.AddAsync(usuario);
         return usuario;
     }
-
     public async Task<Usuario?> AtualizarAsync(string id, Usuario usuario)
     {
         var existente = await _usuarioRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-        usuario.Id = id;
-        usuario.DataCriacao = existente.DataCriacao;
+        // Atualiza apenas os campos editáveis
+        existente.Nome = usuario.Nome;
+        existente.Nickname = usuario.Nickname;
+        existente.Descricao = usuario.Descricao;
+        existente.Avatar = usuario.Avatar;
+        existente.Tema = usuario.Tema;
+        existente.DataAtualizacao = DateTime.UtcNow;
 
-        await _usuarioRepository.UpdateAsync(id, usuario);
-        return usuario;
+        await _usuarioRepository.UpdateAsync(id, existente);
+        return existente;
     }
 
     public async Task<IEnumerable<Usuario>> GetUsuariosAsync()

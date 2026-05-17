@@ -54,6 +54,17 @@ public class LivroController : ControllerBase
         return Ok(livro);
     }
 
+    /// <summary>
+    /// Busca todos os livros de um usuário específico (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}")]
+    public async Task<IActionResult> GetPorUsuario(string usuarioId)
+    {
+        var livros = await _livroService.GetPorUsuarioAsync(usuarioId);
+        return Ok(livros);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Criar([FromBody] Livro livro)
     {

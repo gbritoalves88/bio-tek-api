@@ -25,21 +25,18 @@ public class AuthController : ControllerBase
         _configuration = configuration; // ⬅️ NOVO
     }
 
-    /// <summary>
-    /// Login mock para testes (convidado)
-    /// </summary>
     [HttpPost("mock")]
     public async Task<IActionResult> LoginMock([FromBody] SocialLoginRequest request)
     {
         if (string.IsNullOrEmpty(request.Nome) || string.IsNullOrEmpty(request.Email))
-            return BadRequest(new { mensagem = "Nome e Email são obrigatórios para o mock" });
+            return BadRequest(new { mensagem = "Nome e Email são obrigatórios" });
 
-        var googleId = request.Id;
+        var googleId = "mock-" + Guid.NewGuid().ToString("N")[..8];
         var nome = request.Nome;
         var email = request.Email;
 
         var usuarios = await _usuarioRepository.FindAsync(
-            u => u.IdGoogle == googleId || u.Email == email);
+            u => u.Email == email);
 
         var usuario = usuarios.FirstOrDefault();
         bool novoUsuario = false;
@@ -51,14 +48,14 @@ public class AuthController : ControllerBase
             {
                 IdGoogle = googleId,
                 Nome = nome,
-                Email = email
+                Email = email,
+                Nickname = request.Nickname ?? "" // ⬅️ Já vem com nickname
             };
             await _usuarioRepository.AddAsync(usuario);
         }
         else
         {
             usuario.Nome = nome;
-            usuario.IdGoogle ??= googleId;
             usuario.DataAtualizacao = DateTime.UtcNow;
             await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
         }

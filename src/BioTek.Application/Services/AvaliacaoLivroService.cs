@@ -84,4 +84,10 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
     {
         return await _avaliacaoLivroRepository.GetByIdAsync(id);
     }
+
+   public async Task<IEnumerable<AvaliacaoLivro>> GetTodasAsync()
+    {
+        return await _avaliacaoLivroRepository.GetAllAsync();
+    }
+    
 }

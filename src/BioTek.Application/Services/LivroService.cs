@@ -130,4 +130,11 @@ public class LivroService : ILivroService
         await _livroRepository.DeleteAsync(id);
         return true;
     }
+
+    public async Task<IEnumerable<Livro>> GetTodosAsync()
+    {
+        return await _livroRepository.GetAllAsync();
+    }
+
+    
 }

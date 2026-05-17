@@ -88,4 +88,16 @@ public class LivroController : ControllerBase
         if (!deletado) return NotFound();
         return NoContent();
     }
+
+    /// <summary>
+    /// Busca todos os livros (feed público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("todos")]
+    public async Task<IActionResult> GetAllPublico()
+    {
+        var livros = await _livroService.GetTodosAsync();
+        return Ok(livros);
+    }
+    
 }

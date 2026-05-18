@@ -4,7 +4,6 @@ using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-
 namespace BioTek.Api.Controllers;
 
 [Authorize]
@@ -13,16 +12,32 @@ namespace BioTek.Api.Controllers;
 public class LivroController : ControllerBase
 {
     private readonly ILivroService _livroService;
+    private readonly HttpClient _httpClient;
 
-    public LivroController(ILivroService livroService)
+    public LivroController(ILivroService livroService, IHttpClientFactory httpClientFactory)
     {
         _livroService = livroService;
+        _httpClient = httpClientFactory.CreateClient();
     }
 
     private string GetUsuarioId()
     {
         return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
     }
+
+    /// <summary>
+    /// Busca livro por ISBN na Open Library
+    /// </summary>
+   [HttpGet("buscar/isbn/{isbn}")]
+    public async Task<IActionResult> BuscarPorIsbn(string isbn)
+    {
+        var livro = await _livroService.BuscarPorIsbnAsync(isbn);
+        if (livro == null)
+            return NotFound(new { mensagem = "Livro não encontrado" });
+
+        return Ok(livro);
+    }
+    
 
     [HttpGet]
     public async Task<IActionResult> GetMeusLivros()
@@ -37,6 +52,17 @@ public class LivroController : ControllerBase
         var livro = await _livroService.GetPorIdAsync(id);
         if (livro == null) return NotFound();
         return Ok(livro);
+    }
+
+    /// <summary>
+    /// Busca todos os livros de um usuário específico (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}")]
+    public async Task<IActionResult> GetPorUsuario(string usuarioId)
+    {
+        var livros = await _livroService.GetPorUsuarioAsync(usuarioId);
+        return Ok(livros);
     }
 
     [HttpPost]
@@ -62,4 +88,16 @@ public class LivroController : ControllerBase
         if (!deletado) return NotFound();
         return NoContent();
     }
+
+    /// <summary>
+    /// Busca todos os livros (feed público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("todos")]
+    public async Task<IActionResult> GetAllPublico()
+    {
+        var livros = await _livroService.GetTodosAsync();
+        return Ok(livros);
+    }
+    
 }

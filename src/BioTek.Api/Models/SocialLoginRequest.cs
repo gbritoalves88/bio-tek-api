@@ -6,4 +6,5 @@ public class SocialLoginRequest
     public string IdToken { get; set; } = string.Empty;
     public string Nome { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string? Nickname { get; set; } // ⬅️ NOVO
 }

@@ -10,4 +10,6 @@ public interface IAvaliacaoLivroService
     Task<AvaliacaoLivro> CriarAsync(AvaliacaoLivro avaliacaoLivro);
     Task<AvaliacaoLivro?> AtualizarAsync(string id, AvaliacaoLivro avaliacaoLivro);
     Task<bool> DeletarAsync(string id);
+    Task<IEnumerable<AvaliacaoLivro>> GetTodasAsync();
+    
 }

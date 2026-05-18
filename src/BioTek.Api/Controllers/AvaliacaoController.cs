@@ -4,6 +4,7 @@ using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+
 namespace BioTek.Api.Controllers;
 
 [Authorize]
@@ -72,5 +73,27 @@ public class AvaliacaoLivroController : ControllerBase
     {
         await _avaliacaoLivroService.DeletarAsync(id);
         return NoContent();
+    }
+    
+    /// <summary>
+    /// Busca todas as avaliações (feed público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("todas")]
+    public async Task<IActionResult> GetAllPublico()
+    {
+        var avaliacoes = await _avaliacaoLivroService.GetTodasAsync();
+        return Ok(avaliacoes);
+    }
+
+    /// <summary>
+    /// Busca avaliações de um usuário específico (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}")]
+    public async Task<IActionResult> GetPorUsuarioPublico(string usuarioId)
+    {
+        var avaliacoes = await _avaliacaoLivroService.GetPorUsuarioAsync(usuarioId);
+        return Ok(avaliacoes);
     }
 }

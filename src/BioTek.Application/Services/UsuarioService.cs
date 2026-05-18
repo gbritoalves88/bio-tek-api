@@ -49,12 +49,31 @@ public class UsuarioService : IUsuarioService
         await _usuarioRepository.AddAsync(usuario);
         return usuario;
     }
+ 
     public async Task<Usuario?> AtualizarAsync(string id, Usuario usuario)
     {
         var existente = await _usuarioRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-        // Atualiza apenas os campos editáveis
+        // Validação do nickname
+        if (!string.IsNullOrEmpty(usuario.Nickname))
+        {
+            // Remove @ se o usuário digitou
+            var nick = usuario.Nickname.StartsWith('@') ? usuario.Nickname : $"@{usuario.Nickname}";
+            
+            if (nick.Length < 4 || nick.Length > 11) // @ + 3 a 10 caracteres
+                throw new InvalidOperationException("Nickname deve ter entre 3 e 10 caracteres (sem contar o @)");
+
+            // Verifica se já existe (ignorando o próprio usuário)
+            var nicknameExiste = await _usuarioRepository.FindAsync(
+                u => u.Nickname == nick && u.Id != id);
+            if (nicknameExiste.Any())
+                throw new InvalidOperationException("Este @nickname já está em uso");
+
+            usuario.Nickname = nick;
+        }
+
+        // Preserva dados que não podem ser alterados
         existente.Nome = usuario.Nome;
         existente.Nickname = usuario.Nickname;
         existente.Descricao = usuario.Descricao;

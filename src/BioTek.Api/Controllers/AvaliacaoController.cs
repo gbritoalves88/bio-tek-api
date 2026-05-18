@@ -85,4 +85,15 @@ public class AvaliacaoLivroController : ControllerBase
         var avaliacoes = await _avaliacaoLivroService.GetTodasAsync();
         return Ok(avaliacoes);
     }
+
+    /// <summary>
+    /// Busca avaliações de um usuário específico (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}")]
+    public async Task<IActionResult> GetPorUsuarioPublico(string usuarioId)
+    {
+        var avaliacoes = await _avaliacaoLivroService.GetPorUsuarioAsync(usuarioId);
+        return Ok(avaliacoes);
+    }
 }

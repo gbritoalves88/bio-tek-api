@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: biotek-api
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__MongoDb=mongodb://mongo:27017
+      - Jwt__Key=ChaveSuperSecretaDoBioTekComNoMinimo32Caracteres!
+      - Jwt__Issuer=BioTek.Api
+      - Jwt__Audience=BioTek.App
+      - Jwt__ExpireMinutes=1440
+      - Authentication__Google__ClientId=3559837920-73a93ipuafg6ngsbhaqe8cuh1vhqqbql.apps.googleusercontent.com
+      - BooksApi__GoogleApiKey=AIzaSyB-o3efr1iH00qlY97RJM-IeN6ZmgIZMF0
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7.0
+    container_name: biotek-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:

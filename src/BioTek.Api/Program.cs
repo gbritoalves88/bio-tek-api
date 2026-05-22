@@ -123,6 +123,7 @@ builder.Services.AddScoped<IComentarioLivroService, ComentarioLivroService>();
 builder.Services.AddScoped<IColecaoService, ColecaoService>();
 builder.Services.AddScoped<IComentarioColecaoService, ComentarioColecaoService>();
 builder.Services.AddScoped<IAvaliacaoColecaoService, AvaliacaoColecaoService>();
+builder.Services.AddScoped<IComunidadeService, ComunidadeService>();
 
 // ==========================================
 // 5. CONTROLLERS + SWAGGER

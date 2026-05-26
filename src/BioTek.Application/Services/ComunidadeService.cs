@@ -9,15 +9,18 @@ public class ComunidadeService : IComunidadeService
     private readonly IRepository<Livro> _livroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
+    private readonly IRepository<ComentarioLivro> _comentarioRepository;
 
     public ComunidadeService(
         IRepository<Livro> livroRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
-        IRepository<Usuario> usuarioRepository)
+        IRepository<Usuario> usuarioRepository,
+        IRepository<ComentarioLivro> comentarioRepository) // ⬅️ NOVO
     {
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
         _usuarioRepository = usuarioRepository;
+        _comentarioRepository = comentarioRepository;
     }
 
     public async Task<List<AtividadeFeed>> GetFeedAsync(string? meuId = null, int limite = 30)
@@ -28,6 +31,9 @@ public class ComunidadeService : IComunidadeService
         var usuarioMap = usuarios.ToDictionary(u => u.Id);
 
         var livros = await _livroRepository.GetAllAsync();
+        var comentarios = await _comentarioRepository.GetAllAsync(); // ⬅️ NOVO
+
+        // ===== LIVROS =====
         var ultimosLivros = livros
             .Where(l => string.IsNullOrEmpty(meuId) || l.IdUsuario != meuId)
             .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
@@ -40,7 +46,7 @@ public class ComunidadeService : IComunidadeService
             {
                 Id = livro.Id,
                 Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
-                       livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
+                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
                 Usuario = u == null ? null : new UsuarioFeed
                 {
                     Id = u.Id,
@@ -59,6 +65,7 @@ public class ComunidadeService : IComunidadeService
             });
         }
 
+        // ===== AVALIAÇÕES =====
         var avaliacoes = await _avaliacaoRepository.GetAllAsync();
         var ultimasAvaliacoes = avaliacoes
             .Where(a => string.IsNullOrEmpty(meuId) || a.IdUsuario != meuId)
@@ -69,6 +76,22 @@ public class ComunidadeService : IComunidadeService
         {
             var u = usuarioMap.GetValueOrDefault(av.IdUsuario);
             var livro = livros.FirstOrDefault(l => l.Id == av.IdLivro);
+
+            // Comentários deste livro
+            var comentariosDoLivro = comentarios
+                .Where(c => c.IdLivro == av.IdLivro)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Comentario,
+                    c.DataCriacao,
+                    Usuario = usuarioMap.GetValueOrDefault(c.IdUsuario) is { } cu ? new
+                    {
+                        cu.Id,
+                        cu.Nickname
+                    } : null
+                }).ToList<object>();
+
             atividades.Add(new AtividadeFeed
             {
                 Id = av.Id,
@@ -91,6 +114,7 @@ public class ComunidadeService : IComunidadeService
                 {
                     Nota = (int)av.Nota
                 },
+                Comentarios = comentariosDoLivro, // ⬅️ NOVO
                 Data = av.DataAtualizacao ?? av.DataCriacao
             });
         }

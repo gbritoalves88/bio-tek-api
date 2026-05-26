@@ -99,5 +99,15 @@ public class LivroController : ControllerBase
         var livros = await _livroService.GetTodosAsync();
         return Ok(livros);
     }
+
+    /// <summary>
+    /// Biblioteca completa do usuário (livros + avaliações + comentários)
+    /// </summary>
+    [HttpGet("biblioteca")]
+    public async Task<IActionResult> GetBibliotecaCompleta()
+    {
+        var livros = await _livroService.GetBibliotecaCompletaAsync(GetUsuarioId());
+        return Ok(livros);
+    }
     
 }

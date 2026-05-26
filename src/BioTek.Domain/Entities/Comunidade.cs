@@ -7,6 +7,7 @@ public class AtividadeFeed : BaseEntity
     public UsuarioFeed? Usuario { get; set; }
     public LivroFeed? Livro { get; set; }
     public AvaliacaoFeed? Avaliacao { get; set; }
+    public object? Comentarios { get; set; }
     public DateTime Data { get; set; }
 }
 

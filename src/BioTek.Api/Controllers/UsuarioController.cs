@@ -73,4 +73,16 @@ public class UsuarioController : ControllerBase
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Perfil público completo de um usuário (com livros e avaliações)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("{id}/perfil-completo")]
+    public async Task<IActionResult> GetPerfilCompleto(string id)
+    {
+        var resultado = await _usuarioService.GetPerfilCompletoAsync(id);
+        if (resultado == null) return NotFound();
+        return Ok(resultado);
+    }
 }

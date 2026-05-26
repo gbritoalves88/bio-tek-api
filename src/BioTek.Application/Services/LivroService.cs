@@ -12,17 +12,26 @@ public class LivroService : ILivroService
     private readonly IRepository<Colecao> _colecaoRepository;
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;
+    private readonly IRepository<ComentarioLivro> _comentarioLivroRepository;
+    private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
+    private readonly IRepository<Usuario> _usuarioRepository;
 
     public LivroService(
-        IRepository<Livro> livroRepository,
-        IRepository<Colecao> colecaoRepository,
-        HttpClient httpClient,
-        IConfiguration configuration)
+    IRepository<Livro> livroRepository,
+    IRepository<Colecao> colecaoRepository,
+    HttpClient httpClient,
+    IConfiguration configuration,
+    IRepository<ComentarioLivro> comentarioLivroRepository,
+    IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
+    IRepository<Usuario> usuarioRepository)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
         _httpClient = httpClient;
         _configuration = configuration;
+        _comentarioLivroRepository = comentarioLivroRepository;
+        _avaliacaoLivroRepository = avaliacaoLivroRepository;
+        _usuarioRepository = usuarioRepository;
     }
 
     public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId)
@@ -236,6 +245,52 @@ public class LivroService : ILivroService
     public async Task<IEnumerable<Livro>> GetTodosAsync()
     {
         return await _livroRepository.GetAllAsync();
+    }
+
+    public async Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId)
+    {
+        var livros = await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
+        var avaliacoes = await _avaliacaoLivroRepository.GetAllAsync();
+        var comentarios = await _comentarioLivroRepository.GetAllAsync();
+        var usuarios = await _usuarioRepository.GetAllAsync();
+
+        var usuarioMap = usuarios.ToDictionary(u => u.Id);
+
+        return livros.Select(livro =>
+        {
+            var avaliacao = avaliacoes.FirstOrDefault(a => a.IdLivro == livro.Id && a.IdUsuario == usuarioId);
+            var comentariosDoLivro = comentarios
+                .Where(c => c.IdLivro == livro.Id)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Comentario,
+                    c.DataCriacao,
+                    Usuario = usuarioMap.TryGetValue(c.IdUsuario, out var u) ? new
+                    {
+                        u.Id,
+                        u.Nome,
+                        u.Nickname,
+                        u.Avatar
+                    } : null
+                }).ToList();
+
+            return (object)new
+            {
+                livro.Id,
+                livro.Titulo,
+                livro.Autor,
+                livro.Descricao,
+                livro.Imagem,
+                livro.CodigoBarras,
+                livro.Status,
+                livro.Progresso,
+                livro.DataCriacao,
+                livro.DataAtualizacao,
+                Avaliacao = avaliacao == null ? null : new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao },
+                Comentarios = comentariosDoLivro
+            };
+        }).ToList();
     }
 
     

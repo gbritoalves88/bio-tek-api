@@ -9,5 +9,7 @@ public interface ISeguidorService
     Task<IEnumerable<Seguidor>> GetSeguidoresAsync(string idUsuario);
     Task<IEnumerable<Seguidor>> GetSeguindoAsync(string idSeguidor);
     Task<bool> EstaSeguindoAsync(string idUsuario, string idSeguidor);
+    Task<List<object>> GetSeguindoCompletoAsync(string idSeguidor);
+    
 
 }

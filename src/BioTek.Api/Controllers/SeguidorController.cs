@@ -72,4 +72,15 @@ public class SeguidorController : ControllerBase
         var result = await _seguidorService.EstaSeguindoAsync(idUsuario, GetUsuarioId());
         return Ok(new { seguindo = result });
     }
+
+    /// <summary>
+    /// Lista completa de quem o usuário logado segue (com dados dos usuários)
+    /// </summary>
+    [HttpGet("seguindo-completo")]
+    public async Task<IActionResult> GetSeguindoCompleto()
+    {
+        var idSeguidor = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var seguindo = await _seguidorService.GetSeguindoCompletoAsync(idSeguidor);
+        return Ok(seguindo);
+    }
 }

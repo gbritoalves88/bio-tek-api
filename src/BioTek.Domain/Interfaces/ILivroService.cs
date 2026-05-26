@@ -11,4 +11,5 @@ public interface ILivroService
     Task<bool> DeletarAsync(string id);
     Task<Livro?> BuscarPorIsbnAsync(string isbn);
     Task<IEnumerable<Livro>> GetTodosAsync();
+    Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId);
 }

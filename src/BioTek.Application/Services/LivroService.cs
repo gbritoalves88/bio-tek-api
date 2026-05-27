@@ -15,15 +15,16 @@ public class LivroService : ILivroService
     private readonly IRepository<ComentarioLivro> _comentarioLivroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
+    private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
 
     public LivroService(
-    IRepository<Livro> livroRepository,
-    IRepository<Colecao> colecaoRepository,
-    HttpClient httpClient,
-    IConfiguration configuration,
-    IRepository<ComentarioLivro> comentarioLivroRepository,
-    IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
-    IRepository<Usuario> usuarioRepository)
+        IRepository<Livro> livroRepository,
+        IRepository<Colecao> colecaoRepository,
+        HttpClient httpClient,
+        IConfiguration configuration,
+        IRepository<ComentarioLivro> comentarioLivroRepository,
+        IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
+        IRepository<Usuario> usuarioRepository)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
@@ -37,6 +38,34 @@ public class LivroService : ILivroService
     public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId)
     {
         return await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
+    }
+
+
+    public async Task<List<object>> GetMeusLivrosAsync(string usuarioId)
+    {
+        var livros = await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
+        var avaliacoes = await _avaliacaoLivroRepository.FindAsync(a => a.IdUsuario == usuarioId);
+
+        return livros.Select(l =>
+        {
+            var av = avaliacoes.FirstOrDefault(a => a.IdLivro == l.Id);
+            return (object)new
+            {
+                l.Id,
+                l.IdUsuario,
+                l.IdColecao,
+                l.Titulo,
+                l.Autor,
+                l.Descricao,
+                l.CodigoBarras,
+                l.Imagem,
+                l.Status,
+                l.Progresso,
+                l.DataCriacao,
+                l.DataAtualizacao,
+                Avaliacao = av == null ? null : new { av.Id, av.Nota, av.DataCriacao }
+            };
+        }).ToList();
     }
 
     public async Task<Livro?> GetPorIdAsync(string id)
@@ -293,5 +322,5 @@ public class LivroService : ILivroService
         }).ToList();
     }
 
-    
+
 }

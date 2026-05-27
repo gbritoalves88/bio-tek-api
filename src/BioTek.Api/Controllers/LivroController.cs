@@ -38,11 +38,10 @@ public class LivroController : ControllerBase
         return Ok(livro);
     }
     
-
     [HttpGet]
     public async Task<IActionResult> GetMeusLivros()
     {
-        var livros = await _livroService.GetPorUsuarioAsync(GetUsuarioId());
+        var livros = await _livroService.GetMeusLivrosAsync(GetUsuarioId());
         return Ok(livros);
     }
 

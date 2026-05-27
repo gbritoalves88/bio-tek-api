@@ -125,10 +125,17 @@ public class UsuarioService : IUsuarioService
         return new
         {
             usuario.Id,
+            usuario.IdGoogle,
             usuario.Nome,
             usuario.Nickname,
-            usuario.Avatar,
+            usuario.Email,
             usuario.Descricao,
+            usuario.Avatar,
+            usuario.Tema,
+            usuario.Adm,
+            usuario.Ativo,
+            usuario.DataCriacao,
+            usuario.DataAtualizacao,
             QuantidadeLivros = livros.Count(),
             QuantidadeLivrosLidos = livros.Count(l => l.Status == StatusLeitura.Lido),
             MediaAvaliacoes = avaliacoes.Any()

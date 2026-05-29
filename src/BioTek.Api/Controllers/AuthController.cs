@@ -60,6 +60,11 @@ public class AuthController : ControllerBase
             await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
         }
 
+        if (!usuario.Ativo)
+        {
+            return Unauthorized(new { mensagem = "Usuário desativado. Entre em contato com o administrador." });
+        }
+
         var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
 
         return Ok(new
@@ -127,6 +132,11 @@ public class AuthController : ControllerBase
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+            }
+
+            if (!usuario.Ativo)
+            {
+                return Unauthorized(new { mensagem = "Usuário desativado. Entre em contato com o administrador." });
             }
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");

@@ -63,30 +63,22 @@ public class UsuarioService : IUsuarioService
         var existente = await _usuarioRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-        // Validação do nickname
-        if (!string.IsNullOrEmpty(usuario.Nickname))
-        {
-            // Remove @ se o usuário digitou
-            var nick = usuario.Nickname.StartsWith('@') ? usuario.Nickname : $"@{usuario.Nickname}";
-            
-            if (nick.Length < 4 || nick.Length > 11) // @ + 3 a 10 caracteres
-                throw new InvalidOperationException("Nickname deve ter entre 3 e 10 caracteres (sem contar o @)");
-
-            // Verifica se já existe (ignorando o próprio usuário)
-            var nicknameExiste = await _usuarioRepository.FindAsync(
-                u => u.Nickname == nick && u.Id != id);
-            if (nicknameExiste.Any())
-                throw new InvalidOperationException("Este @nickname já está em uso");
-
-            usuario.Nickname = nick;
-        }
-
         // Preserva dados que não podem ser alterados
+        existente.IdGoogle = existente.IdGoogle;
+        existente.IdFacebook = existente.IdFacebook;
+        existente.Email = existente.Email;
+        existente.Adm = existente.Adm;
+        existente.Ativo = existente.Ativo;
+        existente.DataCriacao = existente.DataCriacao;
+
+        // Atualiza campos editáveis
         existente.Nome = usuario.Nome;
         existente.Nickname = usuario.Nickname;
         existente.Descricao = usuario.Descricao;
         existente.Avatar = usuario.Avatar;
         existente.Tema = usuario.Tema;
+        existente.AceitouTermos = usuario.AceitouTermos;        // ⬅️ NOVO
+        existente.DataAceiteTermos = usuario.DataAceiteTermos;  // ⬅️ NOVO
         existente.DataAtualizacao = DateTime.UtcNow;
 
         await _usuarioRepository.UpdateAsync(id, existente);
@@ -136,6 +128,8 @@ public class UsuarioService : IUsuarioService
             usuario.Ativo,
             usuario.DataCriacao,
             usuario.DataAtualizacao,
+            usuario.AceitouTermos,      // ⬅️ NOVO
+            usuario.DataAceiteTermos,
             QuantidadeLivros = livros.Count(),
             QuantidadeLivrosLidos = livros.Count(l => l.Status == StatusLeitura.Lido),
             MediaAvaliacoes = avaliacoes.Any()

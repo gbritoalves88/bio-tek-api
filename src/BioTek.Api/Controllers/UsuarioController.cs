@@ -5,6 +5,7 @@ using BioTek.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using BioTek.Application.Services;
+using System.Security.Claims;
 
 namespace BioTek.Api.Controllers;
 
@@ -18,6 +19,11 @@ public class UsuarioController : ControllerBase
     public UsuarioController(IUsuarioService usuarioService)
     {
         _usuarioService = usuarioService;
+    }
+
+    private string GetUsuarioId()
+    {
+        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
     }
 
     // GET: api/usuario
@@ -84,5 +90,22 @@ public class UsuarioController : ControllerBase
         var resultado = await _usuarioService.GetPerfilCompletoAsync(id);
         if (resultado == null) return NotFound();
         return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Aceitar termos de uso (usuário logado)
+    /// </summary>
+    [HttpPut("aceitar-termos")]
+    public async Task<IActionResult> AceitarTermos()
+    {
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var usuario = await _usuarioService.GetPorIdAsync(id);
+        if (usuario == null) return NotFound();
+
+        usuario.AceitouTermos = true;
+        usuario.DataAceiteTermos = DateTime.UtcNow;
+
+        await _usuarioService.AtualizarAsync(id, usuario);
+        return Ok(new { mensagem = "Termos aceitos com sucesso." });
     }
 }

@@ -18,4 +18,6 @@ public class Usuario : BaseEntity
     public double MediaAvaliacoes { get; set; }
     public bool Adm { get; set; }
     public bool Ativo { get; set; } = true;
+    public bool AceitouTermos { get; set; } = false; // ⬅️ NOVO
+    public DateTime? DataAceiteTermos { get; set; }
 }

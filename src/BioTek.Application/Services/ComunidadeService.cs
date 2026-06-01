@@ -23,60 +23,43 @@ public class ComunidadeService : IComunidadeService
         _comentarioRepository = comentarioRepository;
     }
 
-    public async Task<List<AtividadeFeed>> GetFeedAsync(string? meuId = null, int limite = 30)
+     public async Task<List<AtividadeFeed>> GetFeedAsync(string? meuId = null, int limite = 30)
     {
-        var atividades = new List<AtividadeFeed>();
-
-        var usuarios = await _usuarioRepository.GetAllAsync();
-        var usuarioMap = usuarios.ToDictionary(u => u.Id);
-
-        var livros = await _livroRepository.GetAllAsync();
-        var comentarios = await _comentarioRepository.GetAllAsync(); // ⬅️ NOVO
-
-        // ===== LIVROS =====
-        var ultimosLivros = livros
-            .Where(l => string.IsNullOrEmpty(meuId) || l.IdUsuario != meuId)
-            .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
-            .Take(limite);
-
-        foreach (var livro in ultimosLivros)
+        // ⬅️ VALIDAÇÃO INICIAL
+        if (string.IsNullOrEmpty(meuId))
         {
-            var u = usuarioMap.GetValueOrDefault(livro.IdUsuario);
-            atividades.Add(new AtividadeFeed
-            {
-                Id = livro.Id,
-                Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
-                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
-                Usuario = u == null ? null : new UsuarioFeed
-                {
-                    Id = u.Id,
-                    Nome = u.Nome,
-                    Nickname = u.Nickname,
-                    Avatar = u.Avatar
-                },
-                Livro = new LivroFeed
-                {
-                    Id = livro.Id,
-                    Titulo = livro.Titulo,
-                    Autor = livro.Autor,
-                    Imagem = livro.Imagem
-                },
-                Data = livro.DataAtualizacao ?? livro.DataCriacao
-            });
+            return new List<AtividadeFeed>();
         }
 
+        var atividades = new List<AtividadeFeed>();
+
+        // Busca dados
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
+
+        var livros = await _livroRepository.GetAllAsync();
+        var livroMap = livros.ToDictionary(l => l.Id, l => l);
+
+        var comentarios = await _comentarioRepository.GetAllAsync();
+        
         // ===== AVALIAÇÕES =====
         var avaliacoes = await _avaliacaoRepository.GetAllAsync();
+        
         var ultimasAvaliacoes = avaliacoes
-            .Where(a => string.IsNullOrEmpty(meuId) || a.IdUsuario != meuId)
+            .Where(a => !string.IsNullOrEmpty(a.IdUsuario) && a.IdUsuario != meuId)
             .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
-            .Take(limite);
+            .Take(limite)
+            .ToList();
 
         foreach (var av in ultimasAvaliacoes)
         {
-            var u = usuarioMap.GetValueOrDefault(av.IdUsuario);
-            var livro = livros.FirstOrDefault(l => l.Id == av.IdLivro);
-
+            // ⬅️ VERIFICA SE O ID É NULO
+            if (string.IsNullOrEmpty(av.IdUsuario)) continue;
+            
+            // ⬅️ USA TRYGETVALUE PARA EVITAR ERRO
+            usuarioMap.TryGetValue(av.IdUsuario, out var u);
+            livroMap.TryGetValue(av.IdLivro, out var livro);
+            
             // Comentários deste livro
             var comentariosDoLivro = comentarios
                 .Where(c => c.IdLivro == av.IdLivro)
@@ -85,7 +68,7 @@ public class ComunidadeService : IComunidadeService
                     c.Id,
                     c.Comentario,
                     c.DataCriacao,
-                    Usuario = usuarioMap.GetValueOrDefault(c.IdUsuario) is { } cu ? new
+                    Usuario = usuarioMap.TryGetValue(c.IdUsuario, out var cu) ? new
                     {
                         cu.Id,
                         cu.Nickname
@@ -114,8 +97,43 @@ public class ComunidadeService : IComunidadeService
                 {
                     Nota = (int)av.Nota
                 },
-                Comentarios = comentariosDoLivro, // ⬅️ NOVO
+                Comentarios = comentariosDoLivro,
                 Data = av.DataAtualizacao ?? av.DataCriacao
+            });
+        }
+
+        // ===== LIVROS =====
+        var ultimosLivros = livros
+            .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
+            .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
+            .Take(limite);
+
+        foreach (var livro in ultimosLivros)
+        {
+            if (string.IsNullOrEmpty(livro.IdUsuario)) continue;
+            
+            usuarioMap.TryGetValue(livro.IdUsuario, out var u);
+            
+            atividades.Add(new AtividadeFeed
+            {
+                Id = livro.Id,
+                Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
+                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
+                Usuario = u == null ? null : new UsuarioFeed
+                {
+                    Id = u.Id,
+                    Nome = u.Nome,
+                    Nickname = u.Nickname,
+                    Avatar = u.Avatar
+                },
+                Livro = new LivroFeed
+                {
+                    Id = livro.Id,
+                    Titulo = livro.Titulo,
+                    Autor = livro.Autor,
+                    Imagem = livro.Imagem
+                },
+                Data = livro.DataAtualizacao ?? livro.DataCriacao
             });
         }
 

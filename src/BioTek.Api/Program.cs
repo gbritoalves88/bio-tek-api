@@ -134,6 +134,7 @@ builder.Services.AddScoped<IComentarioColecaoService, ComentarioColecaoService>(
 builder.Services.AddScoped<IAvaliacaoColecaoService, AvaliacaoColecaoService>();
 builder.Services.AddScoped<IComunidadeService, ComunidadeService>();
 builder.Services.AddScoped<ICatalogoService, CatalogoService>();
+builder.Services.AddScoped<IHomeService, HomeService>();
 
 
 // ==========================================

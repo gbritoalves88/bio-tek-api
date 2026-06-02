@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,10 +12,16 @@ namespace BioTek.Api.Controllers;
 public class SeguidorController : ControllerBase
 {
     private readonly ISeguidorService _seguidorService;
+    private readonly INotificacaoService _notificacaoService;
+    private readonly IUsuarioService _usuarioService;
 
-    public SeguidorController(ISeguidorService seguidorService)
+    public SeguidorController(ISeguidorService seguidorService,
+    IUsuarioService usuarioService,
+    INotificacaoService notificacaoService)
     {
         _seguidorService = seguidorService;
+        _usuarioService = usuarioService;
+        _notificacaoService = notificacaoService;
     }
 
     private string GetUsuarioId()
@@ -23,14 +30,31 @@ public class SeguidorController : ControllerBase
             ?? User.FindFirst("sub")?.Value!;
     }
 
-    /// <summary>
-    /// Seguir um usuário
-    /// </summary>
+
     [HttpPost("seguir/{idUsuario}")]
     public async Task<IActionResult> Seguir(string idUsuario)
     {
-        var result = await _seguidorService.SeguirAsync(idUsuario, GetUsuarioId());
-        return Ok(result);
+        var usuarioLogadoId = GetUsuarioId();
+        
+        try
+        {
+            var resultado = await _seguidorService.SeguirAsync(idUsuario, usuarioLogadoId);
+
+            // Disparar notificação
+            var usuario = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
+
+            await _notificacaoService.CriarNotificacaoSeguidor(
+                idUsuario,
+                usuarioLogadoId,
+                usuario?.Nome ?? "Alguém"
+            );
+            
+            return Ok(resultado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     /// <summary>

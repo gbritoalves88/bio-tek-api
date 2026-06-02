@@ -118,6 +118,12 @@ builder.Services.AddScoped<IRepository<Catalogo>>(sp =>
     return new MongoRepository<Catalogo>(context, "Catalogo");
 });
 
+builder.Services.AddScoped<IRepository<Notificacao>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Notificacao>(context, "Notificacoes");
+});
+
 
 
 // ==========================================
@@ -135,6 +141,7 @@ builder.Services.AddScoped<IAvaliacaoColecaoService, AvaliacaoColecaoService>();
 builder.Services.AddScoped<IComunidadeService, ComunidadeService>();
 builder.Services.AddScoped<ICatalogoService, CatalogoService>();
 builder.Services.AddScoped<IHomeService, HomeService>();
+builder.Services.AddScoped<INotificacaoService, NotificacaoService>();
 
 
 // ==========================================

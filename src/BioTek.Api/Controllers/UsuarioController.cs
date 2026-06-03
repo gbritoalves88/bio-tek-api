@@ -108,4 +108,20 @@ public class UsuarioController : ControllerBase
         await _usuarioService.AtualizarAsync(id, usuario);
         return Ok(new { mensagem = "Termos aceitos com sucesso." });
     }
+
+    /// <summary>
+    /// Lista todos os usuários (apenas para admin)
+    /// </summary>
+    [Authorize]
+    [HttpGet("todos")]
+    public async Task<IActionResult> GetAllUsuarios()
+    {
+        var usuarioLogado = await _usuarioService.GetPorIdAsync(GetUsuarioId());
+        
+        if (usuarioLogado == null || !usuarioLogado.Adm)
+            return Forbid("Acesso apenas para administradores");
+        
+        var usuarios = await _usuarioService.GetUsuariosAsync();
+        return Ok(usuarios);
+    }
 }

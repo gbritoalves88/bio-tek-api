@@ -19,11 +19,16 @@ public class HomeService : IHomeService
 
     public async Task<object> GetDashboardAsync(string usuarioId)
     {
-        // 1. Lista de leitura (status = Quero ler - 1)
-        var todosLivros = await _livroRepository.GetAllAsync();
+        // Busca TODOS os livros do usuário (1 requisição)
+        var todosLivros = await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
         
+        // 1. Livro atual (status = Lendo - 2)
+        var livroAtual = todosLivros
+            .FirstOrDefault(l => l.Status == StatusLeitura.Lendo);
+        
+        // 2. Lista de leitura (status = Quero ler - 1)
         var listaLeitura = todosLivros
-            .Where(l => l.IdUsuario == usuarioId && l.Status == StatusLeitura.QueroLer)
+            .Where(l => l.Status == StatusLeitura.QueroLer)
             .OrderByDescending(l => l.DataCriacao)
             .Take(10)
             .Select(l => new
@@ -37,10 +42,15 @@ public class HomeService : IHomeService
             })
             .ToList();
 
-        // 2. Top 10 melhores avaliados da plataforma (todos os usuários)
+        // 3. Top 10 melhores avaliados da plataforma (EXCLUINDO o usuário logado)
         var todasAvaliacoes = await _avaliacaoRepository.GetAllAsync();
         
-        var topAvaliadosIds = todasAvaliacoes
+        // Filtra avaliações de outros usuários
+        var avaliacoesOutros = todasAvaliacoes
+            .Where(a => a.IdUsuario != usuarioId)
+            .ToList();
+        
+        var topAvaliadosIds = avaliacoesOutros
             .GroupBy(a => a.IdLivro)
             .Select(g => new
             {
@@ -54,7 +64,10 @@ public class HomeService : IHomeService
             .Select(x => x.LivroId)
             .ToList();
 
-        var livrosTop = todosLivros
+        // Busca apenas os livros que estão no top
+        var todosLivrosCatalogo = await _livroRepository.GetAllAsync();
+        
+        var topAvaliados = todosLivrosCatalogo
             .Where(l => topAvaliadosIds.Contains(l.Id))
             .Select(l => new
             {
@@ -62,10 +75,10 @@ public class HomeService : IHomeService
                 l.Titulo,
                 l.Autor,
                 l.Imagem,
-                Media = todasAvaliacoes
+                Media = avaliacoesOutros
                     .Where(a => a.IdLivro == l.Id)
                     .Average(a => (int)a.Nota),
-                TotalAvaliacoes = todasAvaliacoes
+                TotalAvaliacoes = avaliacoesOutros
                     .Count(a => a.IdLivro == l.Id)
             })
             .OrderByDescending(l => l.Media)
@@ -74,8 +87,17 @@ public class HomeService : IHomeService
 
         return new
         {
+            livroAtual = livroAtual == null ? null : new
+            {
+                livroAtual.Id,
+                livroAtual.Titulo,
+                livroAtual.Autor,
+                livroAtual.Imagem,
+                livroAtual.Status,
+                livroAtual.Progresso
+            },
             listaLeitura,
-            topAvaliados = livrosTop
+            topAvaliados
         };
     }
 }

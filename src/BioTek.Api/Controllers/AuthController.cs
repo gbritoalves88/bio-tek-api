@@ -79,15 +79,13 @@ public class AuthController : ControllerBase
                 usuario.Nickname,
                 usuario.Descricao,
                 usuario.Avatar,
-                usuario.Tema
+                usuario.Tema,
+                usuario.AceitouTermos 
             }
         });
     }
 
-    /// <summary>
-    /// Login/Registro com Google
-    /// </summary>
-    [HttpPost("google")]
+   [HttpPost("google")]
     public async Task<IActionResult> LoginComGoogle([FromBody] SocialLoginRequest request)
     {
         if (string.IsNullOrEmpty(request.IdToken))
@@ -95,14 +93,12 @@ public class AuthController : ControllerBase
 
         try
         {
-
             var clientId = _configuration["Authentication:Google:ClientId"]!;
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
                 Audience = new[] { clientId }
             };
 
-            // ✅ Validação oficial: verifica assinatura, expiração, aud e iss
             var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
 
             var googleId = payload.Subject;
@@ -113,11 +109,11 @@ public class AuthController : ControllerBase
                 u => u.IdGoogle == googleId || u.Email == email);
 
             var usuario = usuarios.FirstOrDefault();
-            bool novoUsuario = false; // ⬅️ NOVO
+            bool novoUsuario = false;
 
             if (usuario == null)
             {
-                novoUsuario = true; // ⬅️ NOVO
+                novoUsuario = true;
                 usuario = new Usuario
                 {
                     IdGoogle = googleId,
@@ -144,7 +140,7 @@ public class AuthController : ControllerBase
             return Ok(new
             {
                 token,
-                novoUsuario, // ⬅️ NOVO
+                novoUsuario,
                 usuario = new
                 {
                     usuario.Id,
@@ -153,7 +149,10 @@ public class AuthController : ControllerBase
                     usuario.Nickname,
                     usuario.Descricao,
                     usuario.Avatar,
-                    usuario.Tema
+                    usuario.Tema,
+                    usuario.Adm,      // ⬅️ ADICIONADO
+                    usuario.Ativo  ,
+                    usuario.AceitouTermos    // ⬅️ ADICIONADO
                 }
             });
         }

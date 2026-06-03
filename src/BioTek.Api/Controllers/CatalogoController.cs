@@ -324,4 +324,24 @@ public class CatalogoController : ControllerBase
             GenerosMaisComuns = generos
         });
     }
+
+    /// <summary>
+    /// Importação robusta em massa (milhares de livros)
+    /// </summary>
+    [HttpPost("importar/robusto")]
+    public async Task<IActionResult> ImportarRobusto([FromQuery] string? categoria = "tudo", [FromQuery] int livrosPorTermo = 40, [FromQuery] int paginasPorTermo = 3)
+    {
+        var resultado = await _catalogoService.ImportarRobustoAsync(categoria, livrosPorTermo, paginasPorTermo);
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Importa livros por letras do alfabeto (a-z) - Simplificado
+    /// </summary>
+    [HttpPost("importar/letras")]
+    public async Task<IActionResult> ImportarPorLetras([FromQuery] int livrosPorLetra = 40, [FromQuery] int atrasoMs = 500)
+    {
+        var resultado = await _catalogoService.ImportarPorLetrasAsync(livrosPorLetra, atrasoMs);
+        return Ok(resultado);
+    }
 }

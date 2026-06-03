@@ -25,6 +25,8 @@ public interface ICatalogoService
     Task<ImportacaoResultado> ImportarPorTermoAsync(string termo, int limite = 50);
     Task<ImportacaoResultado> ImportarPorIsbnsAsync(List<string> isbns);
     Task<ImportacaoResultado> ImportarPopularesAsync(string categoria = "best-sellers", int limite = 50);
+    Task<object> ImportarRobustoAsync(string? categoria, int livrosPorTermo = 40, int paginasPorTermo = 3);
+    Task<object> ImportarPorLetrasAsync(int livrosPorLetra = 40, int atrasoMs = 500);
     
     // Biblioteca pessoal
     Task<Livro?> AdicionarABibliotecaPessoalAsync(string catalogoId, string usuarioId, int? status = null);

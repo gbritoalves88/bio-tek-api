@@ -17,11 +17,17 @@ public class ComunidadeController : ControllerBase
         _comunidadeService = comunidadeService;
     }
 
+     private string GetUsuarioId()
+    {
+        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value!;
+    }
+
     [AllowAnonymous]
     [HttpGet("feed")]
-    public async Task<IActionResult> GetFeed([FromQuery] string? meuId = null, [FromQuery] int limite = 30)
+    public async Task<IActionResult> GetFeed([FromQuery] int limite = 30)
     {
-        var atividades = await _comunidadeService.GetFeedAsync(meuId, limite);
+        var atividades = await _comunidadeService.GetFeedAsync(GetUsuarioId(), limite);
         return Ok(atividades);
     }
 

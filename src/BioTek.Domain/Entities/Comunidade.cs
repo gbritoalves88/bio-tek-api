@@ -16,6 +16,7 @@ public class UsuarioFeed : BaseEntity
     public string Nome { get; set; } = string.Empty;
     public string Nickname { get; set; } = string.Empty;
     public string? Avatar { get; set; }
+    public bool Segue { get; set; } 
 }
 
 public class LivroFeed : BaseEntity

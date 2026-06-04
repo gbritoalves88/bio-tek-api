@@ -240,7 +240,7 @@ public class LivroService : ILivroService
     }
 
 
-    public async Task<Livro?> AtualizarAsync(string id, Livro livro)
+    public async Task<Livro?> AtualizarAsync(string id, Livro livro, int? estrelas = null)
     {
         var existente = await _livroRepository.GetByIdAsync(id);
         if (existente == null) return null;
@@ -259,6 +259,43 @@ public class LivroService : ILivroService
         livro.IdUsuario = existente.IdUsuario;
 
         await _livroRepository.UpdateAsync(id, livro);
+
+        // 🆕 Processar avaliação se status = Lido (3) e tem estrelas
+        if (livro.Status == StatusLeitura.Lido && estrelas.HasValue)
+        {
+            // Validar se a nota está no range válido
+            if (estrelas.Value < 1 || estrelas.Value > 5)
+                throw new InvalidOperationException("Nota deve ser entre 1 e 5");
+
+            var nota = (Nota)estrelas.Value;
+
+            // Buscar avaliação existente deste usuário para este livro
+            var avaliacoesExistentes = await _avaliacaoLivroRepository
+                .FindAsync(a => a.IdLivro == id && a.IdUsuario == livro.IdUsuario);
+            var avaliacaoExistente = avaliacoesExistentes.FirstOrDefault();
+
+            if (avaliacaoExistente != null)
+            {
+                // Atualizar avaliação existente
+                avaliacaoExistente.Nota = nota;
+                avaliacaoExistente.DataAtualizacao = DateTime.UtcNow;
+                await _avaliacaoLivroRepository.UpdateAsync(avaliacaoExistente.Id, avaliacaoExistente);
+            }
+            else
+            {
+                // Criar nova avaliação
+                var novaAvaliacao = new AvaliacaoLivro
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    IdLivro = id,
+                    IdUsuario = livro.IdUsuario,
+                    Nota = nota,
+                    DataCriacao = DateTime.UtcNow
+                };
+                await _avaliacaoLivroRepository.AddAsync(novaAvaliacao);
+            }
+        }
+
         return livro;
     }
 

@@ -143,6 +143,7 @@ public class UsuarioService : IUsuarioService
                 l.Imagem,
                 l.Status,
                 l.DataCriacao,
+                l.Descricao,
                 Avaliacao = avaliacoes.FirstOrDefault(a => a.IdLivro == l.Id) is { } av
                     ? new { av.Id, av.Nota, av.DataCriacao }
                     : null,

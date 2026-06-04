@@ -3,6 +3,7 @@ using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace BioTek.Api.Controllers;
 
@@ -72,12 +73,42 @@ public class LivroController : ControllerBase
         return CreatedAtAction(nameof(GetPorId), new { id = novo.Id }, novo);
     }
 
+
+
     [HttpPut("{id}")]
-    public async Task<IActionResult> Atualizar(string id, [FromBody] Livro livro)
+    public async Task<IActionResult> Atualizar(string id, [FromBody] JsonElement body)
     {
-        var atualizado = await _livroService.AtualizarAsync(id, livro);
-        if (atualizado == null) return NotFound();
-        return Ok(atualizado);
+        try
+        {
+            // Desserializa o Livro
+            var livro = JsonSerializer.Deserialize<Livro>(body.GetRawText(), 
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (livro == null)
+                return BadRequest(new { mensagem = "Dados inválidos" });
+
+            // Extrai estrelas manualmente (campo extra)
+            int? estrelas = null;
+            if (body.TryGetProperty("estrelas", out var estrelasElement) && 
+                estrelasElement.ValueKind != JsonValueKind.Null)
+            {
+                estrelas = estrelasElement.GetInt32();
+            }
+
+            var atualizado = await _livroService.AtualizarAsync(id, livro, estrelas);
+            if (atualizado == null) 
+                return NotFound(new { mensagem = "Livro não encontrado" });
+
+            return Ok(atualizado);
+        }
+        catch (JsonException)
+        {
+            return BadRequest(new { mensagem = "JSON inválido" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });
+        }
     }
 
     [HttpDelete("{id}")]

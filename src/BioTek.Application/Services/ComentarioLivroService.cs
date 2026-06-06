@@ -25,8 +25,6 @@ public class ComentarioLivroService : IComentarioLivroService
         if (string.IsNullOrWhiteSpace(comentario.Comentario))
             throw new InvalidOperationException("Comentário não pode estar vazio");
 
-        if (comentario.Comentario.Trim().Length < 5)
-            throw new InvalidOperationException("Comentário muito curto. Mínimo de 5 caracteres");
 
         if (comentario.Comentario.Length > 200)
             throw new InvalidOperationException("Comentário passou do limite de 200 caracteres");

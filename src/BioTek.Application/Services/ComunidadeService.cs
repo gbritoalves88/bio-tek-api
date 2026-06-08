@@ -61,6 +61,9 @@ public class ComunidadeService : IComunidadeService
             usuarioMap.TryGetValue(av.IdUsuario, out var u);
             livroMap.TryGetValue(av.IdLivro, out var livro);
             
+            // 🆕 Pula se o livro não existe (foi deletado)
+            if (livro == null) continue;
+            
             var comentariosDoLivro = comentarios
                 .Where(c => c.IdLivro == av.IdLivro)
                 .Select(c => new
@@ -87,7 +90,7 @@ public class ComunidadeService : IComunidadeService
                     Avatar = u.Avatar,
                     Segue = seguindoIds.Contains(av.IdUsuario)
                 },
-                Livro = livro == null ? null : new LivroFeed
+                Livro = new LivroFeed
                 {
                     Id = livro.Id,
                     Titulo = livro.Titulo,
@@ -97,43 +100,6 @@ public class ComunidadeService : IComunidadeService
                 Avaliacao = new AvaliacaoFeed { Nota = (int)av.Nota },
                 Comentarios = comentariosDoLivro,
                 Data = av.DataAtualizacao ?? av.DataCriacao
-            });
-        }
-
-        // ⬇️ Processa Livros (novo, lendo, lido)
-        var ultimosLivros = livros
-            .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
-            .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
-            .Take(limite)
-            .ToList();
-
-        foreach (var livro in ultimosLivros)
-        {
-            if (string.IsNullOrEmpty(livro.IdUsuario)) continue;
-            
-            usuarioMap.TryGetValue(livro.IdUsuario, out var u);
-            
-            atividades.Add(new AtividadeFeed
-            {
-                Id = livro.Id,
-                Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
-                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
-                Usuario = u == null ? null : new UsuarioFeed
-                {
-                    Id = u.Id,
-                    Nome = u.Nome,
-                    Nickname = u.Nickname,
-                    Avatar = u.Avatar,
-                    Segue = seguindoIds.Contains(livro.IdUsuario)
-                },
-                Livro = new LivroFeed
-                {
-                    Id = livro.Id,
-                    Titulo = livro.Titulo,
-                    Autor = livro.Autor,
-                    Imagem = livro.Imagem
-                },
-                Data = livro.DataAtualizacao ?? livro.DataCriacao
             });
         }
 

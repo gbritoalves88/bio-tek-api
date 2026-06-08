@@ -17,7 +17,7 @@ public class ComunidadeService : IComunidadeService
         IRepository<AvaliacaoLivro> avaliacaoRepository,
         IRepository<Usuario> usuarioRepository,
         IRepository<ComentarioLivro> comentarioRepository,
-        IRepository<Seguidor> seguidorRepository) // ⬅️ NOVO
+        IRepository<Seguidor> seguidorRepository)
     {
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
@@ -35,23 +35,23 @@ public class ComunidadeService : IComunidadeService
 
         var atividades = new List<AtividadeFeed>();
 
-        // ⬇️ 1 REQUISIÇÃO: Buscar tudo de uma vez
+        // ⬇️ Buscar tudo de uma vez
         var usuarios = await _usuarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
         var avaliacoes = await _avaliacaoRepository.GetAllAsync();
         var comentarios = await _comentarioRepository.GetAllAsync();
         var seguindo = await _seguidorRepository.FindAsync(s => s.IdSeguidor == meuId);
 
-        // ⬇️ Cria Dicionários para acesso rápido
+        // ⬇️ Dicionários para acesso rápido
         var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
         var livroMap = livros.ToDictionary(l => l.Id, l => l);
         var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
 
-        // ⬇️ Processa Avaliações
+        // ⬇️ Processa AVALIAÇÕES
         var ultimasAvaliacoes = avaliacoes
             .Where(a => !string.IsNullOrEmpty(a.IdUsuario) && a.IdUsuario != meuId)
             .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
-            .Take(limite)
+            .Take(limite / 2)
             .ToList();
 
         foreach (var av in ultimasAvaliacoes)
@@ -61,7 +61,7 @@ public class ComunidadeService : IComunidadeService
             usuarioMap.TryGetValue(av.IdUsuario, out var u);
             livroMap.TryGetValue(av.IdLivro, out var livro);
             
-            // 🆕 Pula se o livro não existe (foi deletado)
+            // Pula se o livro não existe (foi deletado)
             if (livro == null) continue;
             
             var comentariosDoLivro = comentarios
@@ -100,6 +100,43 @@ public class ComunidadeService : IComunidadeService
                 Avaliacao = new AvaliacaoFeed { Nota = (int)av.Nota },
                 Comentarios = comentariosDoLivro,
                 Data = av.DataAtualizacao ?? av.DataCriacao
+            });
+        }
+
+        // ⬇️ Processa LIVROS (novo, lendo, lido)
+        var ultimosLivros = livros
+            .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
+            .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
+            .Take(limite / 2)
+            .ToList();
+
+        foreach (var livro in ultimosLivros)
+        {
+            if (string.IsNullOrEmpty(livro.IdUsuario)) continue;
+            
+            usuarioMap.TryGetValue(livro.IdUsuario, out var u);
+
+            atividades.Add(new AtividadeFeed
+            {
+                Id = livro.Id,
+                Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
+                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
+                Usuario = u == null ? null : new UsuarioFeed
+                {
+                    Id = u.Id,
+                    Nome = u.Nome,
+                    Nickname = u.Nickname,
+                    Avatar = u.Avatar,
+                    Segue = seguindoIds.Contains(livro.IdUsuario)
+                },
+                Livro = new LivroFeed
+                {
+                    Id = livro.Id,
+                    Titulo = livro.Titulo,
+                    Autor = livro.Autor,
+                    Imagem = livro.Imagem
+                },
+                Data = livro.DataAtualizacao ?? livro.DataCriacao
             });
         }
 

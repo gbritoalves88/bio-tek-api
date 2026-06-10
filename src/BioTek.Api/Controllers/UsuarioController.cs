@@ -124,4 +124,18 @@ public class UsuarioController : ControllerBase
         var usuarios = await _usuarioService.GetUsuariosAsync();
         return Ok(usuarios);
     }
+
+    /// <summary>
+    /// Busca usuários por nome ou nickname (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("buscar")]
+    public async Task<IActionResult> Buscar([FromQuery] string q)
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
+            return Ok(new List<object>());
+
+        var usuarios = await _usuarioService.BuscarAsync(q);
+        return Ok(usuarios);
+    }
 }

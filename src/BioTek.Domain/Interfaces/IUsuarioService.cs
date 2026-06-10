@@ -11,4 +11,5 @@ public interface IUsuarioService
     Task<Usuario?> AtualizarAsync(string id, Usuario usuario);
     Task<bool> DeletarAsync(string id);
     Task<object?> GetPerfilCompletoAsync(string usuarioId);
+    Task<List<object>> BuscarAsync(string termo);
 }

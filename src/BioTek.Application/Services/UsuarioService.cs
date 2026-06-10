@@ -163,4 +163,26 @@ public class UsuarioService : IUsuarioService
             }).OrderByDescending(l => l.DataCriacao)
         };
     }
+
+    public async Task<List<object>> BuscarAsync(string termo)
+    {
+        var todos = await _usuarioRepository.GetAllAsync();
+        
+        return todos
+            .Where(u => u.Ativo && 
+                (u.Nome != null && u.Nome.Contains(termo, StringComparison.OrdinalIgnoreCase)) ||
+                (u.Nickname != null && u.Nickname.Contains(termo, StringComparison.OrdinalIgnoreCase)))
+            .Take(20)
+            .Select(u => new
+            {
+                u.Id,
+                u.Nome,
+                u.Nickname,
+                u.Avatar,
+                QuantidadeLivros = 0, // Pode calcular depois se quiser
+                QuantidadeLivrosLidos = 0,
+                MediaAvaliacoes = 0.0
+            })
+            .ToList<object>();
+    }
 }

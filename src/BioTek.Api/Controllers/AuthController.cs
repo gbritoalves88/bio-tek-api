@@ -6,6 +6,7 @@ using BioTek.Infrastructure.Repositories;
 using BioTek.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Google.Apis.Auth;
+using Microsoft.AspNetCore.Authorization;
 
 namespace BioTek.Api.Controllers;
 
@@ -218,4 +219,100 @@ public class AuthController : ControllerBase
             }
         });
     }
+
+    /// <summary>
+    /// Login com Google via authorization code (SEGURO - client_secret no backend)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("google-code")]
+    public async Task<IActionResult> LoginComGoogleCode([FromBody] GoogleCodeRequest request)
+    {
+        if (string.IsNullOrEmpty(request.Code))
+            return BadRequest(new { mensagem = "Código de autorização é obrigatório" });
+
+        try
+        {
+            // 🔐 Troca o code pelo token (client_secret protegido no backend!)
+            using var httpClient = new HttpClient();
+            var redirectUri = request.RedirectUri ?? _configuration["Authentication:Google:RedirectUri"]!;
+            
+            var tokenResponse = await httpClient.PostAsync("https://oauth2.googleapis.com/token",
+                new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["code"] = request.Code,
+                    ["client_id"] = _configuration["Authentication:Google:ClientId"]!,
+                    ["client_secret"] = _configuration["Authentication:Google:ClientSecret"]!,
+                    ["redirect_uri"] = redirectUri,
+                    ["grant_type"] = "authorization_code"
+                }));
+
+            if (!tokenResponse.IsSuccessStatusCode)
+            {
+                var error = await tokenResponse.Content.ReadAsStringAsync();
+                Console.WriteLine($"❌ Erro Google Token: {error}");
+                return BadRequest(new { mensagem = "Erro ao validar código com o Google." });
+            }
+
+            var tokenData = await tokenResponse.Content.ReadFromJsonAsync<GoogleTokenResponse>();
+            if (tokenData == null || string.IsNullOrEmpty(tokenData.IdToken))
+                return BadRequest(new { mensagem = "Token do Google não recebido." });
+
+            // Valida o id_token
+            var clientId = _configuration["Authentication:Google:ClientId"]!;
+            var settings = new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = new[] { clientId }
+            };
+            var payload = await GoogleJsonWebSignature.ValidateAsync(tokenData.IdToken, settings);
+
+            var googleId = payload.Subject;
+            var nome = payload.Name;
+            var email = payload.Email;
+
+            var usuarios = await _usuarioRepository.FindAsync(u => u.IdGoogle == googleId || u.Email == email);
+            var usuario = usuarios.FirstOrDefault();
+            bool novoUsuario = false;
+
+            if (usuario == null)
+            {
+                novoUsuario = true;
+                usuario = new Usuario { IdGoogle = googleId, Nome = nome, Email = email };
+                await _usuarioRepository.AddAsync(usuario);
+            }
+            else
+            {
+                usuario.Nome = nome;
+                usuario.IdGoogle ??= googleId;
+                usuario.DataAtualizacao = DateTime.UtcNow;
+                await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+            }
+
+            if (!usuario.Ativo)
+                return Unauthorized(new { mensagem = "Usuário desativado." });
+
+            var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
+
+            return Ok(new
+            {
+                token,
+                novoUsuario,
+                usuario = new
+                {
+                    usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
+                    usuario.Descricao, usuario.Avatar, usuario.Tema,
+                    usuario.Adm, usuario.Ativo, usuario.AceitouTermos
+                }
+            });
+        }
+        catch (InvalidJwtException ex)
+        {
+            return Unauthorized(new { mensagem = $"Token inválido: {ex.Message}" });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { mensagem = ex.Message });
+        }
+    }
+
+    
 }

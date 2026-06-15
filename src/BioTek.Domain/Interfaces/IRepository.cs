@@ -10,4 +10,5 @@ public interface IRepository<T> where T : class
     Task AddAsync(T entity);
     Task UpdateAsync(string id, T entity);
     Task DeleteAsync(string id);
+    Task UpdateFieldAsync(string id, string fieldName, object value);
 }

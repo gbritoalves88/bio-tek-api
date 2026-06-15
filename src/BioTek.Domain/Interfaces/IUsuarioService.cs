@@ -12,4 +12,5 @@ public interface IUsuarioService
     Task<bool> DeletarAsync(string id);
     Task<object?> GetPerfilCompletoAsync(string usuarioId);
     Task<List<object>> BuscarAsync(string termo);
+    Task UpdateFieldAsync(string id, string fieldName, object value);
 }

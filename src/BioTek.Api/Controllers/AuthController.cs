@@ -16,14 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly TokenService _tokenService;
-
     private readonly IConfiguration _configuration;
 
     public AuthController(MongoDbContext context, TokenService tokenService, IConfiguration configuration)
     {
         _usuarioRepository = new MongoRepository<Usuario>(context, "Usuarios");
         _tokenService = tokenService;
-        _configuration = configuration; // ⬅️ NOVO
+        _configuration = configuration;
     }
 
     [HttpPost("mock")]
@@ -36,9 +35,7 @@ public class AuthController : ControllerBase
         var nome = request.Nome;
         var email = request.Email;
 
-        var usuarios = await _usuarioRepository.FindAsync(
-            u => u.Email == email);
-
+        var usuarios = await _usuarioRepository.FindAsync(u => u.Email == email);
         var usuario = usuarios.FirstOrDefault();
         bool novoUsuario = false;
 
@@ -50,7 +47,7 @@ public class AuthController : ControllerBase
                 IdGoogle = googleId,
                 Nome = nome,
                 Email = email,
-                Nickname = request.Nickname ?? "" // ⬅️ Já vem com nickname
+                Nickname = request.Nickname ?? ""
             };
             await _usuarioRepository.AddAsync(usuario);
         }
@@ -58,12 +55,8 @@ public class AuthController : ControllerBase
         {
             usuario.Nome = nome;
             usuario.DataAtualizacao = DateTime.UtcNow;
+            usuario.Ativo = true; // Reativa se estava desativado
             await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
-        }
-
-        if (!usuario.Ativo)
-        {
-            return Unauthorized(new { mensagem = "Usuário desativado. Entre em contato com o administrador." });
         }
 
         var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
@@ -71,22 +64,17 @@ public class AuthController : ControllerBase
         return Ok(new
         {
             token,
-            novoUsuario,
+            novoUsuario = novoUsuario || !usuario.AceitouTermos,
+            precisaAceitarTermos = !usuario.AceitouTermos,
             usuario = new
             {
-                usuario.Id,
-                usuario.Nome,
-                usuario.Email,
-                usuario.Nickname,
-                usuario.Descricao,
-                usuario.Avatar,
-                usuario.Tema,
-                usuario.AceitouTermos 
+                usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
+                usuario.Descricao, usuario.Avatar, usuario.Tema, usuario.AceitouTermos
             }
         });
     }
 
-   [HttpPost("google")]
+    [HttpPost("google")]
     public async Task<IActionResult> LoginComGoogle([FromBody] SocialLoginRequest request)
     {
         if (string.IsNullOrEmpty(request.IdToken))
@@ -106,9 +94,7 @@ public class AuthController : ControllerBase
             var nome = payload.Name;
             var email = payload.Email;
 
-            var usuarios = await _usuarioRepository.FindAsync(
-                u => u.IdGoogle == googleId || u.Email == email);
-
+            var usuarios = await _usuarioRepository.FindAsync(u => u.IdGoogle == googleId || u.Email == email);
             var usuario = usuarios.FirstOrDefault();
             bool novoUsuario = false;
 
@@ -128,12 +114,8 @@ public class AuthController : ControllerBase
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
+                usuario.Ativo = true; // Reativa se estava desativado
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
-            }
-
-            if (!usuario.Ativo)
-            {
-                return Unauthorized(new { mensagem = "Usuário desativado. Entre em contato com o administrador." });
             }
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
@@ -141,19 +123,13 @@ public class AuthController : ControllerBase
             return Ok(new
             {
                 token,
-                novoUsuario,
+                novoUsuario = novoUsuario || !usuario.AceitouTermos,
+                precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
                 {
-                    usuario.Id,
-                    usuario.Nome,
-                    usuario.Email,
-                    usuario.Nickname,
-                    usuario.Descricao,
-                    usuario.Avatar,
-                    usuario.Tema,
-                    usuario.Adm,      // ⬅️ ADICIONADO
-                    usuario.Ativo  ,
-                    usuario.AceitouTermos    // ⬅️ ADICIONADO
+                    usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
+                    usuario.Descricao, usuario.Avatar, usuario.Tema,
+                    usuario.Adm, usuario.Ativo, usuario.AceitouTermos
                 }
             });
         }
@@ -169,60 +145,6 @@ public class AuthController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Login/Registro com Facebook
-    /// </summary>
-    [HttpPost("facebook")]
-    public async Task<IActionResult> LoginComFacebook([FromBody] SocialLoginRequest request)
-    {
-        if (string.IsNullOrEmpty(request.IdToken))
-            return BadRequest(new { mensagem = "Token do Facebook é obrigatório" });
-
-        // Busca usuário por IdFacebook ou Email
-        var usuarios = await _usuarioRepository.FindAsync(
-            u => u.IdFacebook == request.Id || u.Email == request.Email);
-
-        var usuario = usuarios.FirstOrDefault();
-
-        if (usuario == null)
-        {
-            // Novo usuário
-            usuario = new Usuario
-            {
-                IdFacebook = request.Id,
-                Nome = request.Nome,
-                Email = request.Email
-            };
-            await _usuarioRepository.AddAsync(usuario);
-        }
-        else
-        {
-            // Atualiza dados
-            usuario.Nome = request.Nome;
-            usuario.IdFacebook ??= request.Id; // Vincula Facebook se não tinha
-            usuario.DataAtualizacao = DateTime.UtcNow;
-            await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
-        }
-
-        // Gera JWT
-        var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "facebook");
-
-        return Ok(new
-        {
-            token,
-            usuario = new
-            {
-                usuario.Id,
-                usuario.Nome,
-                usuario.Email,
-                usuario.Tema
-            }
-        });
-    }
-
-    /// <summary>
-    /// Login com Google via authorization code (SEGURO - client_secret no backend)
-    /// </summary>
     [AllowAnonymous]
     [HttpPost("google-code")]
     public async Task<IActionResult> LoginComGoogleCode([FromBody] GoogleCodeRequest request)
@@ -232,10 +154,9 @@ public class AuthController : ControllerBase
 
         try
         {
-            // 🔐 Troca o code pelo token (client_secret protegido no backend!)
             using var httpClient = new HttpClient();
             var redirectUri = request.RedirectUri ?? _configuration["Authentication:Google:RedirectUri"]!;
-            
+
             var tokenResponse = await httpClient.PostAsync("https://oauth2.googleapis.com/token",
                 new FormUrlEncodedContent(new Dictionary<string, string>
                 {
@@ -257,7 +178,6 @@ public class AuthController : ControllerBase
             if (tokenData == null || string.IsNullOrEmpty(tokenData.IdToken))
                 return BadRequest(new { mensagem = "Token do Google não recebido." });
 
-            // Valida o id_token
             var clientId = _configuration["Authentication:Google:ClientId"]!;
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
@@ -284,18 +204,17 @@ public class AuthController : ControllerBase
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
+                usuario.Ativo = true; // Reativa se estava desativado
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
             }
-
-            if (!usuario.Ativo)
-                return Unauthorized(new { mensagem = "Usuário desativado." });
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
 
             return Ok(new
             {
                 token,
-                novoUsuario,
+                novoUsuario = novoUsuario || !usuario.AceitouTermos,
+                precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
                 {
                     usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
@@ -313,6 +232,4 @@ public class AuthController : ControllerBase
             return StatusCode(500, new { mensagem = ex.Message });
         }
     }
-
-    
 }

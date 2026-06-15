@@ -40,6 +40,12 @@ public class MongoRepository<T> : IRepository<T> where T : class
         var filter = Builders<T>.Filter.Eq("Id", id);
         await _collection.ReplaceOneAsync(filter, entity);
     }
+    public async Task UpdateFieldAsync(string id, string fieldName, object value)
+    {
+        var filter = Builders<T>.Filter.Eq("Id", id);
+        var update = Builders<T>.Update.Set(fieldName, value);
+        await _collection.UpdateOneAsync(filter, update);
+    }
 
     public async Task DeleteAsync(string id)
     {

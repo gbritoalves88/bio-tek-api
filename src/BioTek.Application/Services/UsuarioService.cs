@@ -58,18 +58,18 @@ public class UsuarioService : IUsuarioService
         return usuario;
     }
  
+
     public async Task<Usuario?> AtualizarAsync(string id, Usuario usuario)
     {
         var existente = await _usuarioRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
         // Preserva dados que não podem ser alterados
-        existente.IdGoogle = existente.IdGoogle;
-        existente.IdFacebook = existente.IdFacebook;
         existente.Email = existente.Email;
         existente.Adm = existente.Adm;
-        existente.Ativo = existente.Ativo;
         existente.DataCriacao = existente.DataCriacao;
+        existente.IdGoogle = existente.IdGoogle ?? usuario.IdGoogle;
+        existente.IdFacebook = existente.IdFacebook ?? usuario.IdFacebook;
 
         // Atualiza campos editáveis
         existente.Nome = usuario.Nome;
@@ -77,8 +77,15 @@ public class UsuarioService : IUsuarioService
         existente.Descricao = usuario.Descricao;
         existente.Avatar = usuario.Avatar;
         existente.Tema = usuario.Tema;
-        existente.AceitouTermos = usuario.AceitouTermos;        // ⬅️ NOVO
-        existente.DataAceiteTermos = usuario.DataAceiteTermos;  // ⬅️ NOVO
+        existente.Ativo = usuario.Ativo;
+        
+        // 🆕 Só atualiza AceitouTermos se for true (nunca volta para false)
+        if (usuario.AceitouTermos)
+        {
+            existente.AceitouTermos = true;
+            existente.DataAceiteTermos = usuario.DataAceiteTermos ?? DateTime.UtcNow;
+        }
+        
         existente.DataAtualizacao = DateTime.UtcNow;
 
         await _usuarioRepository.UpdateAsync(id, existente);
@@ -184,5 +191,10 @@ public class UsuarioService : IUsuarioService
                 MediaAvaliacoes = 0.0
             })
             .ToList<object>();
+    }
+
+    public async Task UpdateFieldAsync(string id, string fieldName, object value)
+    {
+        await _usuarioRepository.UpdateFieldAsync(id, fieldName, value);
     }
 }

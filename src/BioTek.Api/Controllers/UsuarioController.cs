@@ -102,12 +102,13 @@ public class UsuarioController : ControllerBase
         var usuario = await _usuarioService.GetPorIdAsync(id);
         if (usuario == null) return NotFound();
 
-        usuario.AceitouTermos = true;
-        usuario.DataAceiteTermos = DateTime.UtcNow;
+        await _usuarioService.UpdateFieldAsync(id, "AceitouTermos", true);
+        await _usuarioService.UpdateFieldAsync(id, "DataAceiteTermos", DateTime.UtcNow);
+        await _usuarioService.UpdateFieldAsync(id, "Ativo", true);
 
-        await _usuarioService.AtualizarAsync(id, usuario);
         return Ok(new { mensagem = "Termos aceitos com sucesso." });
     }
+    
 
     /// <summary>
     /// Lista todos os usuários (apenas para admin)
@@ -137,5 +138,24 @@ public class UsuarioController : ControllerBase
 
         var usuarios = await _usuarioService.BuscarAsync(q);
         return Ok(usuarios);
+    }
+
+    /// <summary>
+    /// Desativa a conta do usuário (quando recusa os termos)
+    /// </summary>
+    [HttpPost("desativar")]
+    public async Task<IActionResult> Desativar()
+    {
+        var id = GetUsuarioId();
+        var usuario = await _usuarioService.GetPorIdAsync(id);
+        
+        if (usuario == null) return NotFound();
+        
+        usuario.Ativo = false;
+        usuario.AceitouTermos = false;
+        usuario.DataAtualizacao = DateTime.UtcNow;
+        
+        await _usuarioService.AtualizarAsync(id, usuario);
+        return Ok(new { mensagem = "Conta desativada." });
     }
 }

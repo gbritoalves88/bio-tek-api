@@ -197,6 +197,7 @@ public class AuthController : ControllerBase
             {
                 novoUsuario = true;
                 usuario = new Usuario { IdGoogle = googleId, Nome = nome, Email = email };
+                usuario.DataAtualizacao = DateTime.UtcNow;
                 await _usuarioRepository.AddAsync(usuario);
             }
             else
@@ -204,7 +205,7 @@ public class AuthController : ControllerBase
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
-                usuario.Ativo = true; // Reativa se estava desativado
+                usuario.Ativo = true;
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
             }
 

@@ -155,7 +155,8 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(
                 "http://localhost:4200",
                 "https://biotek-three.vercel.app",
-                "https://bliteca-three.vercel.app"
+                "https://bliteca-three.vercel.app",
+                "https://bliteca.com.br"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()

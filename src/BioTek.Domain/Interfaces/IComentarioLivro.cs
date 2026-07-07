@@ -6,5 +6,5 @@ public interface IComentarioLivroService
 {
     Task<IEnumerable<ComentarioLivro>> GetPorLivroAsync(string livroId);
     Task<ComentarioLivro> CriarAsync(ComentarioLivro comentario);
-    Task<bool> DeletarAsync(string id);
+    Task<bool> DeletarAsync(string id, string usuarioId);
 }

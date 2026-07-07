@@ -49,10 +49,10 @@ public class ComentarioLivroService : IComentarioLivroService
         return comentario;
     }
 
-    public async Task<bool> DeletarAsync(string id)
+    public async Task<bool> DeletarAsync(string id, string usuarioId)
     {
         var existente = await _comentarioRepository.GetByIdAsync(id);
-        if (existente == null) return false;
+        if (existente == null || existente.IdUsuario != usuarioId) return false;
 
         await _comentarioRepository.DeleteAsync(id);
         return true;

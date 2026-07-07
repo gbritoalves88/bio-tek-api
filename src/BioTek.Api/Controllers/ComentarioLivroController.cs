@@ -71,7 +71,7 @@ public class ComentarioLivroController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Deletar(string id)
     {
-        var result = await _comentarioService.DeletarAsync(id);
+        var result = await _comentarioService.DeletarAsync(id, GetUsuarioId());
         return result ? NoContent() : NotFound();
     }
 }

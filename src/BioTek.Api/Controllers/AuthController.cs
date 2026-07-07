@@ -17,6 +17,7 @@ public class AuthController : ControllerBase
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly TokenService _tokenService;
     private readonly IConfiguration _configuration;
+    private const string CONTA_DESATIVADA_MENSAGEM = "Conta desativada. Entre em contato com os administradores pelo email: g.britoalves888@gmail.com";
 
     public AuthController(MongoDbContext context, TokenService tokenService, IConfiguration configuration)
     {
@@ -55,8 +56,11 @@ public class AuthController : ControllerBase
         {
             usuario.Nome = nome;
             usuario.DataAtualizacao = DateTime.UtcNow;
-            usuario.Ativo = true; // Reativa se estava desativado
             await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+
+            // 🔴 Verificar conta desativada
+            if (usuario.Ativo == false)
+                return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
         }
 
         var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
@@ -69,7 +73,8 @@ public class AuthController : ControllerBase
             usuario = new
             {
                 usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
-                usuario.Descricao, usuario.Avatar, usuario.Tema, usuario.AceitouTermos
+                usuario.Descricao, usuario.Avatar, usuario.Tema,
+                usuario.Adm, usuario.Ativo, usuario.AceitouTermos
             }
         });
     }
@@ -111,10 +116,13 @@ public class AuthController : ControllerBase
             }
             else
             {
+                // 🔴 Verificar conta desativada ANTES de atualizar
+                if (usuario.Ativo == false)
+                    return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
+
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
-                usuario.Ativo = true; // Reativa se estava desativado
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
             }
 
@@ -196,16 +204,24 @@ public class AuthController : ControllerBase
             if (usuario == null)
             {
                 novoUsuario = true;
-                usuario = new Usuario { IdGoogle = googleId, Nome = nome, Email = email };
+                usuario = new Usuario
+                {
+                    IdGoogle = googleId,
+                    Nome = nome,
+                    Email = email
+                };
                 usuario.DataAtualizacao = DateTime.UtcNow;
                 await _usuarioRepository.AddAsync(usuario);
             }
             else
             {
+                // 🔴 Verificar conta desativada ANTES de atualizar
+                if (usuario.Ativo == false)
+                    return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
+
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
-                usuario.Ativo = true;
                 await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
             }
 

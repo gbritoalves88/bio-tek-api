@@ -8,15 +8,18 @@ public class ComentarioLivroService : IComentarioLivroService
     private readonly IRepository<ComentarioLivro> _comentarioRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
     private readonly IRepository<Livro> _livroRepository;
+    private readonly ModeracaoService _moderacaoService;
 
     public ComentarioLivroService(
         IRepository<ComentarioLivro> comentarioRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
-        IRepository<Livro> livroRepository)
+        IRepository<Livro> livroRepository,
+        ModeracaoService moderacaoService)
     {
         _comentarioRepository = comentarioRepository;
         _avaliacaoRepository = avaliacaoRepository;
         _livroRepository = livroRepository;
+         _moderacaoService = moderacaoService;
     }
 
     public async Task<ComentarioLivro> CriarAsync(ComentarioLivro comentario)
@@ -46,6 +49,18 @@ public class ComentarioLivroService : IComentarioLivroService
         comentario.DataCriacao = DateTime.UtcNow;
 
         await _comentarioRepository.AddAsync(comentario);
+
+        _ = Task.Run(async () =>
+        {
+            var (flagged, score) = await _moderacaoService.AnalisarAsync(comentario.Comentario);
+            if (flagged)
+            {
+                comentario.Flagged = true;
+                comentario.ToxicidadeScore = score;
+                await _comentarioRepository.UpdateAsync(comentario.Id, comentario);
+            }
+        });
+
         return comentario;
     }
 

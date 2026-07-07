@@ -1,4 +1,5 @@
 using BioTek.Domain.Entities;
+using BioTek.Api.Models; 
 
 namespace BioTek.Domain.Interfaces;
 
@@ -14,4 +15,5 @@ public interface ILivroService
     Task<Livro?> BuscarPorIsbnAsync(string isbn);
     Task<IEnumerable<Livro>> GetTodosAsync();
     Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId);
+    Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request);
 }

@@ -152,7 +152,6 @@ public class UsuarioController : ControllerBase
         if (usuario == null) return NotFound();
         
         usuario.Ativo = false;
-        usuario.AceitouTermos = false;
         usuario.DataAtualizacao = DateTime.UtcNow;
         
         await _usuarioService.AtualizarAsync(id, usuario);

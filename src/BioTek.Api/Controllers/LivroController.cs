@@ -4,6 +4,7 @@ using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using BioTek.Api.Models;
 
 namespace BioTek.Api.Controllers;
 
@@ -138,6 +139,19 @@ public class LivroController : ControllerBase
     {
         var livros = await _livroService.GetBibliotecaCompletaAsync(GetUsuarioId());
         return Ok(livros);
+    }
+
+    /// <summary>
+    /// Atualiza progresso de leitura (página, progresso, pausar/retomar)
+    /// </summary>
+    [HttpPut("{id}/progresso")]
+    public async Task<IActionResult> AtualizarProgresso(string id, [FromBody] AtualizarProgressoRequest request)
+    {
+        var atualizado = await _livroService.AtualizarProgressoAsync(id, GetUsuarioId(), request);
+        if (atualizado == null)
+            return NotFound(new { mensagem = "Livro não encontrado" });
+        
+        return Ok(atualizado);
     }
     
 }

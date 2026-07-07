@@ -128,6 +128,7 @@ builder.Services.AddScoped<IRepository<Notificacao>>(sp =>
     return new MongoRepository<Notificacao>(context, "Notificacoes");
 });
 
+
 // Curtidas
 builder.Services.AddScoped<IRepository<Curtida>>(sp =>
     new MongoRepository<Curtida>(sp.GetRequiredService<MongoDbContext>(), "Curtidas"));

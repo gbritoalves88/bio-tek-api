@@ -9,4 +9,5 @@ public interface INotificacaoService
     Task MarcarComoLidasAsync(string usuarioId);
     Task CriarNotificacaoSeguidor(string idUsuario, string idSeguidor, string nomeSeguidor);
     Task CriarNotificacaoComentario(string idUsuarioDono, string idLivro, string tituloLivro, string nomeComentador);
+Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro);
 }

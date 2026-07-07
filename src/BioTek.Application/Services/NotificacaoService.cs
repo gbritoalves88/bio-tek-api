@@ -73,4 +73,25 @@ public class NotificacaoService : INotificacaoService
         };
         await _notificacaoRepository.AddAsync(notificacao);
     }
+
+    public async Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro)
+    {
+        var tipo = tipoAtividade == "livro" ? "curtida_livro" : "curtida_avaliacao";
+        
+        var mensagem = tipoAtividade == "avaliacao" 
+            ? $"{nomeCurtidor} curtiu sua avaliação de \"{tituloLivro}\" ❤️"
+            : $"{nomeCurtidor} curtiu sua postagem de \"{tituloLivro}\" ❤️";
+        
+        var notificacao = new Notificacao
+        {
+            Id = Guid.NewGuid().ToString(),
+            IdUsuario = idUsuarioDono,
+            Tipo = tipo,
+            Mensagem = mensagem,
+            IdOrigem = idOrigem,
+            DataCriacao = DateTime.UtcNow,
+            Lida = false
+        };
+        await _notificacaoRepository.AddAsync(notificacao);
+    }
 }

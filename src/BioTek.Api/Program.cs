@@ -44,6 +44,9 @@ builder.Services.AddAuthorization();
 // Token JWT
 builder.Services.AddSingleton<TokenService>();
 
+// Moderação de comentários (Singleton = lista estática)
+builder.Services.AddSingleton<ModeracaoService>();
+
 // MongoDB (Singleton = conexão única)
 builder.Services.AddSingleton(sp =>
 {
@@ -83,14 +86,14 @@ builder.Services.AddScoped<IRepository<Seguidor>>(sp =>
     return new MongoRepository<Seguidor>(context, "Seguidores");
 });
 
-// Comentario
+// ComentarioLivro
 builder.Services.AddScoped<IRepository<ComentarioLivro>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
     return new MongoRepository<ComentarioLivro>(context, "ComentarioLivro");
 });
 
-//Coleção
+// Colecao
 builder.Services.AddScoped<IRepository<Colecao>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
@@ -111,20 +114,23 @@ builder.Services.AddScoped<IRepository<ComentarioColecao>>(sp =>
     return new MongoRepository<ComentarioColecao>(context, "ComentariosColecoes");
 });
 
-
+// Catalogo
 builder.Services.AddScoped<IRepository<Catalogo>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
     return new MongoRepository<Catalogo>(context, "Catalogo");
 });
 
+// Notificacoes
 builder.Services.AddScoped<IRepository<Notificacao>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
     return new MongoRepository<Notificacao>(context, "Notificacoes");
 });
 
-
+// Curtidas
+builder.Services.AddScoped<IRepository<Curtida>>(sp =>
+    new MongoRepository<Curtida>(sp.GetRequiredService<MongoDbContext>(), "Curtidas"));
 
 // ==========================================
 // 4. SERVICES (regras de negócio)
@@ -143,7 +149,6 @@ builder.Services.AddScoped<ICatalogoService, CatalogoService>();
 builder.Services.AddScoped<IHomeService, HomeService>();
 builder.Services.AddScoped<INotificacaoService, NotificacaoService>();
 
-
 // ==========================================
 // 5. CONTROLLERS + SWAGGER
 // ==========================================
@@ -156,7 +161,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:4200",
                 "https://biotek-three.vercel.app",
                 "https://bliteca-three.vercel.app",
-                "https://www.bliteca.com.br" 
+                "https://www.bliteca.com.br"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -169,7 +174,6 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    // Configuração do botão Authorize no Swagger
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",

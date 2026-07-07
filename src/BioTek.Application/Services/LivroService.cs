@@ -3,6 +3,7 @@ using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
+using BioTek.Api.Models; 
 
 namespace BioTek.Application.Services;
 
@@ -359,5 +360,33 @@ public class LivroService : ILivroService
         }).ToList();
     }
 
+    public async Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request)
+    {
+        var existente = await _livroRepository.GetByIdAsync(id);
+        if (existente == null || existente.IdUsuario != usuarioId)
+            return null;
+
+        if (request.PaginaAtual.HasValue)
+            existente.PaginaAtual = request.PaginaAtual.Value;
+
+        if (request.TotalPaginas.HasValue)
+            existente.TotalPaginas = request.TotalPaginas.Value;
+
+        if (request.Progresso.HasValue)
+            existente.Progresso = request.Progresso.Value;
+
+        if (request.Pausado.HasValue)
+            existente.Pausado = request.Pausado.Value;
+
+        existente.UltimaLeitura = DateTime.UtcNow;
+        existente.DataAtualizacao = DateTime.UtcNow;
+
+        if (request.Pausado == false)
+            existente.Status = StatusLeitura.Lendo;
+
+        await _livroRepository.UpdateAsync(id, existente);
+
+        return existente;
+    }
 
 }

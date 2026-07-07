@@ -94,7 +94,11 @@ public class HomeService : IHomeService
                 livroAtual.Autor,
                 livroAtual.Imagem,
                 livroAtual.Status,
-                livroAtual.Progresso
+                livroAtual.Progresso,
+                livroAtual.PaginaAtual,      
+                livroAtual.TotalPaginas,      
+                livroAtual.Pausado,           
+                livroAtual.UltimaLeitura 
             },
             listaLeitura,
             topAvaliados

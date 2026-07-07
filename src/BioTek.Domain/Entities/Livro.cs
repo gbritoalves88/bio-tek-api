@@ -14,4 +14,8 @@ public class Livro : BaseEntity
     public string? Imagem { get; set; }
     public StatusLeitura Status { get; set; } = StatusLeitura.QueroLer;
     public int? Progresso { get; set; }
+    public bool Pausado { get; set; } = false;
+    public int? PaginaAtual { get; set; }
+    public int? TotalPaginas { get; set; }
+    public DateTime? UltimaLeitura { get; set; }
 }

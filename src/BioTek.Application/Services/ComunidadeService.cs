@@ -11,43 +11,46 @@ public class ComunidadeService : IComunidadeService
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly IRepository<ComentarioLivro> _comentarioRepository;
     private readonly IRepository<Seguidor> _seguidorRepository;
+    private readonly IRepository<Curtida> _curtidaRepository;
+    private readonly INotificacaoService _notificacaoService;
 
     public ComunidadeService(
         IRepository<Livro> livroRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
         IRepository<Usuario> usuarioRepository,
         IRepository<ComentarioLivro> comentarioRepository,
-        IRepository<Seguidor> seguidorRepository)
+        IRepository<Seguidor> seguidorRepository,
+        IRepository<Curtida> curtidaRepository,
+        INotificacaoService notificacaoService)
     {
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
         _usuarioRepository = usuarioRepository;
         _comentarioRepository = comentarioRepository;
         _seguidorRepository = seguidorRepository;
+        _curtidaRepository = curtidaRepository;
+        _notificacaoService = notificacaoService;
     }
 
     public async Task<List<AtividadeFeed>> GetFeedAsync(string? meuId = null, int limite = 30)
     {
         if (string.IsNullOrEmpty(meuId))
-        {
             return new List<AtividadeFeed>();
-        }
 
         var atividades = new List<AtividadeFeed>();
 
-        // ⬇️ Buscar tudo de uma vez
         var usuarios = await _usuarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
         var avaliacoes = await _avaliacaoRepository.GetAllAsync();
         var comentarios = await _comentarioRepository.GetAllAsync();
         var seguindo = await _seguidorRepository.FindAsync(s => s.IdSeguidor == meuId);
+        var curtidas = await _curtidaRepository.GetAllAsync();
 
-        // ⬇️ Dicionários para acesso rápido
         var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
         var livroMap = livros.ToDictionary(l => l.Id, l => l);
         var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
 
-        // ⬇️ Processa AVALIAÇÕES
+        // Processa AVALIAÇÕES
         var ultimasAvaliacoes = avaliacoes
             .Where(a => !string.IsNullOrEmpty(a.IdUsuario) && a.IdUsuario != meuId)
             .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
@@ -57,13 +60,11 @@ public class ComunidadeService : IComunidadeService
         foreach (var av in ultimasAvaliacoes)
         {
             if (string.IsNullOrEmpty(av.IdUsuario)) continue;
-            
+
             usuarioMap.TryGetValue(av.IdUsuario, out var u);
             livroMap.TryGetValue(av.IdLivro, out var livro);
-            
-            // Pula se o livro não existe (foi deletado)
             if (livro == null) continue;
-            
+
             var comentariosDoLivro = comentarios
                 .Where(c => c.IdLivro == av.IdLivro)
                 .Select(c => new
@@ -99,11 +100,13 @@ public class ComunidadeService : IComunidadeService
                 },
                 Avaliacao = new AvaliacaoFeed { Nota = (int)av.Nota },
                 Comentarios = comentariosDoLivro,
-                Data = av.DataAtualizacao ?? av.DataCriacao
+                Data = av.DataAtualizacao ?? av.DataCriacao,
+                Curtidas = curtidas.Count(c => c.IdAtividade == av.Id),
+                Curtiu = curtidas.Any(c => c.IdAtividade == av.Id && c.IdUsuario == meuId)
             });
         }
 
-        // ⬇️ Processa LIVROS (novo, lendo, lido)
+        // Processa LIVROS (novo, lendo, lido)
         var ultimosLivros = livros
             .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
             .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
@@ -113,7 +116,7 @@ public class ComunidadeService : IComunidadeService
         foreach (var livro in ultimosLivros)
         {
             if (string.IsNullOrEmpty(livro.IdUsuario)) continue;
-            
+
             usuarioMap.TryGetValue(livro.IdUsuario, out var u);
 
             atividades.Add(new AtividadeFeed
@@ -136,7 +139,9 @@ public class ComunidadeService : IComunidadeService
                     Autor = livro.Autor,
                     Imagem = livro.Imagem
                 },
-                Data = livro.DataAtualizacao ?? livro.DataCriacao
+                Data = livro.DataAtualizacao ?? livro.DataCriacao,
+                Curtidas = curtidas.Count(c => c.IdAtividade == livro.Id),
+                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId)
             });
         }
 
@@ -144,5 +149,36 @@ public class ComunidadeService : IComunidadeService
             .OrderByDescending(a => a.Data)
             .Take(limite)
             .ToList();
+    }
+
+    public async Task CurtirAsync(string idAtividade, string idUsuario, string tipoAtividade, string? idUsuarioDono = null, string? nomeCurtidor = null, string? tituloLivro = null)
+    {
+        var existente = await _curtidaRepository.FindAsync(
+            c => c.IdAtividade == idAtividade && c.IdUsuario == idUsuario);
+
+        if (!existente.Any())
+        {
+            var curtida = new Curtida
+            {
+                Id = Guid.NewGuid().ToString(),
+                IdAtividade = idAtividade,
+                IdUsuario = idUsuario,
+                TipoAtividade = tipoAtividade,
+                DataCriacao = DateTime.UtcNow
+            };
+            await _curtidaRepository.AddAsync(curtida);
+
+            if (!string.IsNullOrEmpty(idUsuarioDono) && idUsuarioDono != idUsuario)
+            await _notificacaoService.CriarNotificacaoCurtida(idUsuarioDono, idAtividade, nomeCurtidor!, tipoAtividade, tituloLivro ?? "Livro");
+        }
+    }
+
+    public async Task DescurtirAsync(string idAtividade, string idUsuario)
+    {
+        var existentes = await _curtidaRepository.FindAsync(
+            c => c.IdAtividade == idAtividade && c.IdUsuario == idUsuario);
+
+        foreach (var c in existentes)
+            await _curtidaRepository.DeleteAsync(c.Id);
     }
 }

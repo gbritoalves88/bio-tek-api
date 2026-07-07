@@ -9,6 +9,8 @@ public class AtividadeFeed : BaseEntity
     public AvaliacaoFeed? Avaliacao { get; set; }
     public object? Comentarios { get; set; }
     public DateTime Data { get; set; }
+    public int Curtidas { get; set; }        
+    public bool Curtiu { get; set; } 
 }
 
 public class UsuarioFeed : BaseEntity

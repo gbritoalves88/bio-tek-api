@@ -48,13 +48,28 @@ public class AdminController : ControllerBase
 
     // ===== DASHBOARD =====
     [HttpGet("dashboard")]
-    public async Task<IActionResult> GetDashboard()
+    public async Task<IActionResult> GetDashboard([FromQuery] DateTime? dataInicio = null, [FromQuery] DateTime? dataFim = null)
     {
         if (!await IsAdmin()) return Forbid();
 
         var usuarios = await _usuarioRepository.GetAllAsync();
         var comentarios = await _comentarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
+
+        // Filtra por data se informado
+        if (dataInicio.HasValue)
+        {
+            usuarios = usuarios.Where(u => u.DataCriacao >= dataInicio.Value);
+            comentarios = comentarios.Where(c => c.DataCriacao >= dataInicio.Value);
+            livros = livros.Where(l => l.DataCriacao >= dataInicio.Value);
+        }
+        if (dataFim.HasValue)
+        {
+            var fim = dataFim.Value.AddDays(1); // Inclui o dia inteiro
+            usuarios = usuarios.Where(u => u.DataCriacao < fim);
+            comentarios = comentarios.Where(c => c.DataCriacao < fim);
+            livros = livros.Where(l => l.DataCriacao < fim);
+        }
 
         return Ok(new
         {
@@ -153,6 +168,10 @@ public class AdminController : ControllerBase
                 u.DataCriacao,
                 u.QuantidadeLivros,
                 u.QuantidadeLivrosLidos,
+                u.AceitouTermos,
+                u.DataAceiteTermos,
+                u.DataAtualizacao,
+                u.Avatar,
                 TotalLivros = livros.Count(l => l.IdUsuario == u.Id),  // 🆕
                 TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido)  // 🆕
             });

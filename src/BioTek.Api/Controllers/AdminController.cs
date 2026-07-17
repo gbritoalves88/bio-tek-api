@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using BioTek.Domain.Entities;
+using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -132,6 +133,8 @@ public class AdminController : ControllerBase
         if (!await IsAdmin()) return Forbid();
 
         var usuarios = await _usuarioRepository.GetAllAsync();
+        var livros = await _livroRepository.GetAllAsync();
+        
         var query = usuarios.OrderByDescending(u => u.DataCriacao);
         var total = query.Count();
         var totalPaginas = (int)Math.Ceiling(total / (double)limite);
@@ -149,7 +152,9 @@ public class AdminController : ControllerBase
                 u.Adm,
                 u.DataCriacao,
                 u.QuantidadeLivros,
-                u.QuantidadeLivrosLidos
+                u.QuantidadeLivrosLidos,
+                TotalLivros = livros.Count(l => l.IdUsuario == u.Id),  // 🆕
+                TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido)  // 🆕
             });
 
         return Ok(new { dados = resultado, total, totalPaginas, pagina });

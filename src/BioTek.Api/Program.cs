@@ -133,6 +133,12 @@ builder.Services.AddScoped<IRepository<Notificacao>>(sp =>
 builder.Services.AddScoped<IRepository<Curtida>>(sp =>
     new MongoRepository<Curtida>(sp.GetRequiredService<MongoDbContext>(), "Curtidas"));
 
+
+builder.Services.AddScoped<IRepository<Acesso>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Acesso>(context, "Acessos");
+});
 // ==========================================
 // 4. SERVICES (regras de negócio)
 // ==========================================

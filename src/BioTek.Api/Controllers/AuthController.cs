@@ -19,11 +19,14 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private const string CONTA_DESATIVADA_MENSAGEM = "Conta desativada. Entre em contato com os administradores pelo email: g.britoalves888@gmail.com";
 
+    private readonly IRepository<Acesso> _acessoRepository;
     public AuthController(MongoDbContext context, TokenService tokenService, IConfiguration configuration)
     {
         _usuarioRepository = new MongoRepository<Usuario>(context, "Usuarios");
+        _acessoRepository = new MongoRepository<Acesso>(context, "Acessos"); 
         _tokenService = tokenService;
         _configuration = configuration;
+
     }
 
     [HttpPost("mock")]
@@ -64,6 +67,8 @@ public class AuthController : ControllerBase
         }
 
         var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
+
+        await RegistrarAcesso(usuario.Id);
 
         return Ok(new
         {
@@ -127,6 +132,8 @@ public class AuthController : ControllerBase
             }
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
+
+            await RegistrarAcesso(usuario.Id);
 
             return Ok(new
             {
@@ -227,6 +234,8 @@ public class AuthController : ControllerBase
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
 
+            await RegistrarAcesso(usuario.Id);
+
             return Ok(new
             {
                 token,
@@ -247,6 +256,27 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             return StatusCode(500, new { mensagem = ex.Message });
+        }
+    }
+
+    private async Task RegistrarAcesso(string usuarioId)
+    {
+        // Registrar na collection Acessos
+        var acesso = new Acesso
+        {
+            Id = Guid.NewGuid().ToString(),
+            IdUsuario = usuarioId,
+            DataCriacao = DateTime.UtcNow
+        };
+        await _acessoRepository.AddAsync(acesso);
+
+        // Atualizar Usuario
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario != null)
+        {
+            usuario.UltimoAcesso = DateTime.UtcNow;
+            usuario.TotalAcessos = (usuario.TotalAcessos) + 1;
+            await _usuarioRepository.UpdateAsync(usuarioId, usuario);
         }
     }
 }

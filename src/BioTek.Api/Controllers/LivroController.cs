@@ -66,14 +66,20 @@ public class LivroController : ControllerBase
         return Ok(livros);
     }
 
-    [HttpPost]
+    [HttpPost][HttpPost]
     public async Task<IActionResult> Criar([FromBody] Livro livro)
     {
-        livro.IdUsuario = GetUsuarioId();
-        var novo = await _livroService.CriarAsync(livro);
-        return CreatedAtAction(nameof(GetPorId), new { id = novo.Id }, novo);
+        try
+        {
+            livro.IdUsuario = GetUsuarioId();
+            var novo = await _livroService.CriarAsync(livro);
+            return CreatedAtAction(nameof(GetPorId), new { id = novo.Id }, novo);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });  // 400
+        }
     }
-
 
 
     [HttpPut("{id}")]

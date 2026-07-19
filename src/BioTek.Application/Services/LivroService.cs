@@ -76,6 +76,15 @@ public class LivroService : ILivroService
 
     public async Task<Livro> CriarAsync(Livro livro)
     {
+
+            // 🆕 Verificar duplicidade (mesmo usuário + mesmo título)
+        var existentes = await _livroRepository.FindAsync(
+            l => l.IdUsuario == livro.IdUsuario && 
+                l.Titulo.ToLower() == livro.Titulo.ToLower());
+        
+        if (existentes.Any())
+            throw new InvalidOperationException("Você já tem este livro na sua biblioteca");
+            
         // Valida se a coleção existe (se informada)
         if (!string.IsNullOrEmpty(livro.IdColecao))
         {

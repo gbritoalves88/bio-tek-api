@@ -20,4 +20,6 @@ public class Usuario : BaseEntity
     public bool Ativo { get; set; } = true;
     public bool AceitouTermos { get; set; } = false; // ⬅️ NOVO
     public DateTime? DataAceiteTermos { get; set; }
+    public DateTime? UltimoAcesso { get; set; }      // 🆕
+    public int TotalAcessos { get; set; } = 0; 
 }

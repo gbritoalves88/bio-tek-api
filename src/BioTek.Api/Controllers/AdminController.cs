@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
@@ -17,7 +18,7 @@ public class AdminController : ControllerBase
     private readonly IRepository<Curtida> _curtidaRepository;
     private readonly IRepository<Seguidor> _seguidorRepository;
     private readonly IRepository<Notificacao> _notificacaoRepository;
-
+    private readonly IRepository<Acesso> _acessoRepository;
     public AdminController(
         IRepository<ComentarioLivro> comentarioRepository,
         IRepository<Usuario> usuarioRepository,
@@ -25,7 +26,8 @@ public class AdminController : ControllerBase
         IRepository<AvaliacaoLivro> avaliacaoRepository,
         IRepository<Curtida> curtidaRepository,
         IRepository<Seguidor> seguidorRepository,
-        IRepository<Notificacao> notificacaoRepository)
+        IRepository<Notificacao> notificacaoRepository,
+        IRepository<Acesso> acessoRepository)
     {
         _comentarioRepository = comentarioRepository;
         _usuarioRepository = usuarioRepository;
@@ -34,6 +36,7 @@ public class AdminController : ControllerBase
         _curtidaRepository = curtidaRepository;
         _seguidorRepository = seguidorRepository;
         _notificacaoRepository = notificacaoRepository;
+        _acessoRepository = acessoRepository;
     }
 
     private string GetUsuarioId() =>
@@ -55,21 +58,28 @@ public class AdminController : ControllerBase
         var usuarios = await _usuarioRepository.GetAllAsync();
         var comentarios = await _comentarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
+        var acessos = await _acessoRepository.GetAllAsync();
 
-        // Filtra por data se informado
+        // Filtro de data
         if (dataInicio.HasValue)
         {
             usuarios = usuarios.Where(u => u.DataCriacao >= dataInicio.Value);
             comentarios = comentarios.Where(c => c.DataCriacao >= dataInicio.Value);
             livros = livros.Where(l => l.DataCriacao >= dataInicio.Value);
+            acessos = acessos.Where(a => a.DataCriacao >= dataInicio.Value);
         }
         if (dataFim.HasValue)
         {
-            var fim = dataFim.Value.AddDays(1); // Inclui o dia inteiro
+            var fim = dataFim.Value.AddDays(1);
             usuarios = usuarios.Where(u => u.DataCriacao < fim);
             comentarios = comentarios.Where(c => c.DataCriacao < fim);
             livros = livros.Where(l => l.DataCriacao < fim);
+            acessos = acessos.Where(a => a.DataCriacao < fim);
         }
+
+        var agora = DateTime.UtcNow;
+        var seteDias = agora.AddDays(-7);
+        var trintaDias = agora.AddDays(-30);
 
         return Ok(new
         {
@@ -77,7 +87,14 @@ public class AdminController : ControllerBase
             usuariosAtivos = usuarios.Count(u => u.Ativo),
             totalComentarios = comentarios.Count(),
             comentariosFlagged = comentarios.Count(c => c.Flagged),
-            totalLivros = livros.Count()
+            totalLivros = livros.Count(),
+            
+            // 🆕 Métricas de acesso
+            totalAcessos = acessos.Count(),
+            acessos7Dias = acessos.Count(a => a.DataCriacao >= seteDias),
+            acessos30Dias = acessos.Count(a => a.DataCriacao >= trintaDias),
+            mediaAcessosPorUsuario = usuarios.Any() ? Math.Round(usuarios.Average(u => (double)u.TotalAcessos), 1) : 0,
+            usuariosAtivos30Dias = acessos.Where(a => a.DataCriacao >= trintaDias).Select(a => a.IdUsuario).Distinct().Count()
         });
     }
 
@@ -149,8 +166,11 @@ public class AdminController : ControllerBase
 
         var usuarios = await _usuarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
-        
-        var query = usuarios.OrderByDescending(u => u.DataCriacao);
+        var acessos = await _acessoRepository.GetAllAsync();  // 🆕
+        var agora = DateTime.UtcNow;
+        var trintaDias = agora.AddDays(-30);
+
+        var query = usuarios.OrderByDescending(u => u.TotalAcessos);  // 🆕 ordena por quem mais acessa
         var total = query.Count();
         var totalPaginas = (int)Math.Ceiling(total / (double)limite);
 
@@ -159,26 +179,17 @@ public class AdminController : ControllerBase
             .Take(limite)
             .Select(u => new
             {
-                u.Id,
-                u.Nome,
-                u.Nickname,
-                u.Email,
-                u.Ativo,
-                u.Adm,
-                u.DataCriacao,
-                u.QuantidadeLivros,
-                u.QuantidadeLivrosLidos,
-                u.AceitouTermos,
-                u.DataAceiteTermos,
-                u.DataAtualizacao,
-                u.Avatar,
-                TotalLivros = livros.Count(l => l.IdUsuario == u.Id),  // 🆕
-                TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido)  // 🆕
+                u.Id, u.Nome, u.Nickname, u.Email, u.Ativo, u.Adm, u.DataCriacao,
+                u.QuantidadeLivros, u.QuantidadeLivrosLidos,
+                u.TotalAcessos,                              // 🆕
+                u.UltimoAcesso,                              // 🆕
+                TotalLivros = livros.Count(l => l.IdUsuario == u.Id),
+                TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido),
+                Acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias)  // 🆕
             });
 
         return Ok(new { dados = resultado, total, totalPaginas, pagina });
     }
-
     [HttpGet("usuarios/{id}")]
     public async Task<IActionResult> GetUsuario(string id)
     {
@@ -263,5 +274,54 @@ public class AdminController : ControllerBase
         await _usuarioRepository.DeleteAsync(id);
 
         return NoContent();
+    }
+
+    [HttpGet("exportar")]
+    public async Task<IActionResult> ExportarDados()
+    {
+        if (!await IsAdmin()) return Forbid();
+
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        var livros = await _livroRepository.GetAllAsync();
+        var acessos = await _acessoRepository.GetAllAsync();
+        var comentarios = await _comentarioRepository.GetAllAsync();  // 🆕
+        var agora = DateTime.UtcNow;
+        var trintaDias = agora.AddDays(-30);
+
+        var sb = new StringBuilder();
+        
+        // Cabeçalho
+        sb.AppendLine("Nome,Nickname,Email,Admin,Ativo,Cadastro,Último Acesso,Total Acessos,Acessos 30d,Livros,Livros Lidos,Aceitou Termos");
+        
+        foreach (var u in usuarios.OrderByDescending(u => u.TotalAcessos))
+        {
+            var livrosUsuario = livros.Where(l => l.IdUsuario == u.Id).ToList();
+            var totalLivros = livrosUsuario.Count;
+            var livrosLidos = livrosUsuario.Count(l => l.Status == StatusLeitura.Lido);
+            var acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias);
+            var ultimoAcesso = u.UltimoAcesso.HasValue ? u.UltimoAcesso.Value.ToString("yyyy-MM-dd HH:mm") : "Nunca";
+
+            sb.AppendLine($"{EscapeCsv(u.Nome)},{EscapeCsv(u.Nickname)},{u.Email},{u.Adm},{u.Ativo},{u.DataCriacao:yyyy-MM-dd HH:mm},{ultimoAcesso},{u.TotalAcessos},{acessos30Dias},{totalLivros},{livrosLidos},{u.AceitouTermos}");
+        }
+
+        // Resumo
+        sb.AppendLine();
+        sb.AppendLine("--- RESUMO ---");
+        sb.AppendLine($"Total Usuários,{usuarios.Count()}");
+        sb.AppendLine($"Usuários Ativos,{usuarios.Count(u => u.Ativo)}");
+        sb.AppendLine($"Total Acessos,{acessos.Count()}");
+        sb.AppendLine($"Acessos 7 dias,{acessos.Count(a => a.DataCriacao >= agora.AddDays(-7))}");
+        sb.AppendLine($"Acessos 30 dias,{acessos.Count(a => a.DataCriacao >= trintaDias)}");
+        sb.AppendLine($"Usuários Ativos 30d,{acessos.Where(a => a.DataCriacao >= trintaDias).Select(a => a.IdUsuario).Distinct().Count()}");
+        sb.AppendLine($"Total Livros,{livros.Count()}");
+        sb.AppendLine($"Total Comentários,{comentarios.Count()}");
+
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv", $"bliteca-relatorio-{DateTime.Now:yyyy-MM-dd}.csv");
+    }
+    private string EscapeCsv(string? texto)
+    {
+        if (string.IsNullOrEmpty(texto)) return "";
+        return texto.Contains(',') || texto.Contains('"') ? $"\"{texto.Replace("\"", "\"\"")}\"" : texto;
     }
 }

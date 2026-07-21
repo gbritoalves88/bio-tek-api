@@ -11,6 +11,9 @@ public class AtividadeFeed : BaseEntity
     public DateTime Data { get; set; }
     public int Curtidas { get; set; }        
     public bool Curtiu { get; set; } 
+    public int? Progresso { get; set; }
+    public int? PaginaAtual { get; set; }
+    public int? TotalPaginas { get; set; }
 }
 
 public class UsuarioFeed : BaseEntity

@@ -141,7 +141,11 @@ public class ComunidadeService : IComunidadeService
                 },
                 Data = livro.DataAtualizacao ?? livro.DataCriacao,
                 Curtidas = curtidas.Count(c => c.IdAtividade == livro.Id),
-                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId)
+                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId),
+                // 🆕 Dados de progresso
+                Progresso = livro.Progresso,
+                PaginaAtual = livro.PaginaAtual,
+                TotalPaginas = livro.TotalPaginas
             });
         }
 
@@ -150,7 +154,6 @@ public class ComunidadeService : IComunidadeService
             .Take(limite)
             .ToList();
     }
-
     public async Task CurtirAsync(string idAtividade, string idUsuario, string tipoAtividade, string? idUsuarioDono = null, string? nomeCurtidor = null, string? tituloLivro = null)
     {
         var existente = await _curtidaRepository.FindAsync(

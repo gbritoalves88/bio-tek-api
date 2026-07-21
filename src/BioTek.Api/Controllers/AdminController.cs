@@ -182,7 +182,8 @@ public class AdminController : ControllerBase
                 u.Id, u.Nome, u.Nickname, u.Email, u.Ativo, u.Adm, u.DataCriacao,
                 u.QuantidadeLivros, u.QuantidadeLivrosLidos,
                 u.TotalAcessos,                              // 🆕
-                u.UltimoAcesso,                              // 🆕
+                u.UltimoAcesso,        
+                u.AceitouTermos,                      // 🆕
                 TotalLivros = livros.Count(l => l.IdUsuario == u.Id),
                 TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido),
                 Acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias)  // 🆕
@@ -190,6 +191,7 @@ public class AdminController : ControllerBase
 
         return Ok(new { dados = resultado, total, totalPaginas, pagina });
     }
+
     [HttpGet("usuarios/{id}")]
     public async Task<IActionResult> GetUsuario(string id)
     {
@@ -213,7 +215,8 @@ public class AdminController : ControllerBase
             usuario.DataAtualizacao,
             usuario.QuantidadeLivros,
             usuario.QuantidadeLivrosLidos,
-            usuario.MediaAvaliacoes
+            usuario.MediaAvaliacoes, 
+            usuario.AceitouTermos
         });
     }
 

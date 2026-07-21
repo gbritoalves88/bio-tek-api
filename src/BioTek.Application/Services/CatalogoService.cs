@@ -115,12 +115,12 @@ public class CatalogoService : ICatalogoService
 
     public async Task<Catalogo?> BuscarExternoPorIsbnAsync(string isbn)
     {
-        // Tenta Google Books
-        var livro = await BuscarGoogleBooksPorIsbnAsync(isbn);
+        // Tenta OpenLibrary primeiro
+        var livro = await BuscarOpenLibraryPorIsbnAsync(isbn);
         if (livro != null) return livro;
 
-        // Tenta OpenLibrary
-        livro = await BuscarOpenLibraryPorIsbnAsync(isbn);
+        // Fallback: Google Books
+        livro = await BuscarGoogleBooksPorIsbnAsync(isbn);
         if (livro != null) return livro;
 
         return null;
@@ -130,15 +130,15 @@ public class CatalogoService : ICatalogoService
     {
         var resultados = new List<Catalogo>();
         
-        // Busca no Google Books
-        var googleResultados = await BuscarGoogleBooksPorTextoAsync(termo, limite);
-        resultados.AddRange(googleResultados);
+        // Busca no OpenLibrary primeiro
+        var openResultados = await BuscarOpenLibraryPorTextoAsync(termo, limite);
+        resultados.AddRange(openResultados);
         
-        // Busca no OpenLibrary (complementar)
+        // Complementa com Google Books
         if (resultados.Count < limite)
         {
-            var openResultados = await BuscarOpenLibraryPorTextoAsync(termo, limite - resultados.Count);
-            resultados.AddRange(openResultados);
+            var googleResultados = await BuscarGoogleBooksPorTextoAsync(termo, limite - resultados.Count);
+            resultados.AddRange(googleResultados);
         }
         
         return resultados.DistinctBy(l => l.CodigoBarras).Take(limite).ToList();
@@ -233,14 +233,27 @@ public class CatalogoService : ICatalogoService
 
     public async Task<ImportacaoResultado> ImportarPopularesAsync(string categoria = "best-sellers", int limite = 50)
     {
-        // Busca termos populares baseados na categoria
         var termos = categoria.ToLower() switch
         {
-            "best-sellers" => new[] { "best sellers 2024", "top books 2024" },
-            "classicos" => new[] { "classic literature", "machado de assis", "dom casmurro" },
-            "fantasia" => new[] { "fantasy best sellers", "harry potter", "game of thrones" },
-            "ficcao" => new[] { "fiction best sellers", "literatura brasileira" },
-            "romance" => new[] { "romance books", "best romance novels" },
+            "terror" => new[] { 
+                "horror books best sellers", "stephen king novels", "lovecraft fiction",
+                "terror literature", "gothic horror novels", "supernatural horror books",
+                "dean koontz books", "clive barker books", "joe hill horror",
+                "anne rice vampire chronicles", "hp lovecraft cthulhu"
+            },
+            "fantasia" => new[] { 
+                "fantasy best sellers", "harry potter", "game of thrones", 
+                "lord of the rings", "brandon sanderson", "wheel of time",
+                "tolkien middle earth", "robert jordan fantasy"
+            },
+            "romance" => new[] { 
+                "romance books best", "best romance novels", "nicholas sparks",
+                "jane austen novels", "romance best sellers contemporary"
+            },
+            "ficcao" => new[] { 
+                "fiction best sellers", "literary fiction", "contemporary fiction",
+                "award winning fiction", "booker prize winners"
+            },
             _ => new[] { categoria }
         };
 
@@ -255,6 +268,7 @@ public class CatalogoService : ICatalogoService
             resultado.Erros += importacao.Erros;
             resultado.Itens.AddRange(importacao.Itens);
             
+            await Task.Delay(500);
             if (resultado.Importados >= limite) break;
         }
         
@@ -763,5 +777,78 @@ private async Task<List<Catalogo>> BuscarGoogleBooksPaginadoAsync(string termo, 
         LivrosJaExistentes = totalJaExistentes,
         Detalhes = resultadosPorLetra
     };
+}
+
+    public async Task<ImportacaoResultado> ImportarPorAssuntoOpenLibraryAsync(string assunto, int limite = 200, int maxPaginas = 5)
+{
+    var resultado = new ImportacaoResultado();
+    var totalPorPagina = 50; // OpenLibrary máximo por página
+    
+    for (int pagina = 1; pagina <= maxPaginas; pagina++)
+    {
+        try
+        {
+            var offset = (pagina - 1) * totalPorPagina;
+            var url = $"https://openlibrary.org/subjects/{Uri.EscapeDataString(assunto)}.json?limit={totalPorPagina}&offset={offset}";
+            var response = await _httpClient.GetStringAsync(url);
+            var json = JsonDocument.Parse(response);
+
+            if (!json.RootElement.TryGetProperty("works", out var works) || works.GetArrayLength() == 0)
+                break; // sem mais resultados
+
+            foreach (var work in works.EnumerateArray())
+            {
+                try
+                {
+                    var titulo = work.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                    var autores = work.TryGetProperty("authors", out var a) && a.GetArrayLength() > 0
+                        ? a[0].TryGetProperty("name", out var name) ? name.GetString() ?? "Autor desconhecido" : "Autor desconhecido"
+                        : "Autor desconhecido";
+                    var coverId = work.TryGetProperty("cover_id", out var c) ? c.GetInt64().ToString() : null;
+
+                    if (string.IsNullOrEmpty(titulo)) continue;
+
+                    var existente = (await _catalogoRepository.FindAsync(c => 
+                        c.Titulo == titulo && c.Autor == autores)).FirstOrDefault();
+
+                    if (existente != null)
+                    {
+                        resultado.JaExistentes++;
+                        continue;
+                    }
+
+                    var catalogo = new Catalogo
+                    {
+                        Titulo = titulo,
+                        Autor = autores,
+                        Imagem = coverId != null ? $"https://covers.openlibrary.org/b/id/{coverId}-L.jpg" : null,
+                        Fonte = "OpenLibrary",
+                        FonteId = work.TryGetProperty("key", out var k) ? k.GetString() : "",
+                        Generos = new List<string> { assunto },
+                        DataCriacao = DateTime.UtcNow
+                    };
+
+                    await CreateAsync(catalogo);
+                    resultado.Importados++;
+                    resultado.TotalProcessados++;
+
+                    if (resultado.Importados >= limite)
+                        break;
+                }
+                catch { }
+            }
+
+            if (resultado.Importados >= limite)
+                break;
+
+            await Task.Delay(300); // respeitar rate limit
+        }
+        catch (Exception)
+        {
+            break;
+        }
+    }
+
+    return resultado;
 }
 }

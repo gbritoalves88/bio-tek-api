@@ -34,6 +34,8 @@ public interface ICatalogoService
     // Estatísticas
     Task<int> GetTotalCountAsync();
     Task<List<string>> GetGenerosMaisComunsAsync(int limite = 10);
+
+    Task<ImportacaoResultado> ImportarPorAssuntoOpenLibraryAsync(string assunto, int limite, int maxPaginas);
 }
 
 public class ImportacaoResultado

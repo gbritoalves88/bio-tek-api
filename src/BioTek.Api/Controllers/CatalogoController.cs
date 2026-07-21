@@ -344,4 +344,18 @@ public class CatalogoController : ControllerBase
         var resultado = await _catalogoService.ImportarPorLetrasAsync(livrosPorLetra, atrasoMs);
         return Ok(resultado);
     }
+
+    [HttpGet("categorias")]
+    public async Task<IActionResult> GetCategorias()
+    {
+        var generos = await _catalogoService.GetGenerosMaisComunsAsync(20);
+        return Ok(generos);
+    }
+
+    [HttpPost("importar/assunto/{assunto}")]
+    public async Task<IActionResult> ImportarPorAssunto(string assunto, [FromQuery] int limite = 200, [FromQuery] int maxPaginas = 5)
+    {
+        var resultado = await _catalogoService.ImportarPorAssuntoOpenLibraryAsync(assunto, limite, maxPaginas);
+        return Ok(resultado);
+    }
 }

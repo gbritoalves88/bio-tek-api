@@ -183,7 +183,8 @@ public class AdminController : ControllerBase
                 u.QuantidadeLivros, u.QuantidadeLivrosLidos,
                 u.TotalAcessos,                              // 🆕
                 u.UltimoAcesso,        
-                u.AceitouTermos,                      // 🆕
+                u.AceitouTermos,      
+                u.Avatar,                // 🆕
                 TotalLivros = livros.Count(l => l.IdUsuario == u.Id),
                 TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido),
                 Acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias)  // 🆕
@@ -326,5 +327,38 @@ public class AdminController : ControllerBase
     {
         if (string.IsNullOrEmpty(texto)) return "";
         return texto.Contains(',') || texto.Contains('"') ? $"\"{texto.Replace("\"", "\"\"")}\"" : texto;
+    }
+
+    [HttpGet("livros")]
+    public async Task<IActionResult> GetLivros([FromQuery] int pagina = 1, [FromQuery] int limite = 20)
+    {
+        if (!await IsAdmin()) return Forbid();
+
+        var livros = await _livroRepository.GetAllAsync();
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
+
+        var query = livros.OrderByDescending(l => l.DataCriacao);
+        var total = query.Count();
+        var totalPaginas = (int)Math.Ceiling(total / (double)limite);
+
+        var resultado = query
+            .Skip((pagina - 1) * limite)
+            .Take(limite)
+            .Select(l => new
+            {
+                l.Id, l.Titulo, l.Autor, l.Imagem, l.Status, l.DataCriacao,
+                Usuario = usuarioMap.TryGetValue(l.IdUsuario, out var u) ? new { u.Id, u.Nome, u.Nickname } : null
+            });
+
+        return Ok(new { dados = resultado, total, totalPaginas, pagina });
+    }
+
+    [HttpDelete("livros/{id}")]
+    public async Task<IActionResult> ExcluirLivro(string id)
+    {
+        if (!await IsAdmin()) return Forbid();
+        await _livroRepository.DeleteAsync(id);
+        return NoContent();
     }
 }

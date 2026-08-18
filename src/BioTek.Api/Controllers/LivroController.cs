@@ -159,5 +159,24 @@ public class LivroController : ControllerBase
         
         return Ok(atualizado);
     }
+
+   [HttpGet("proxy-imagem")]
+    public async Task<IActionResult> ProxyImagem([FromQuery] string url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return BadRequest();
+
+        try
+        {
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            var bytes = await httpClient.GetByteArrayAsync(url);
+            return File(bytes, "image/jpeg");
+        }
+        catch
+        {
+            return NotFound();
+        }
+    }
     
 }

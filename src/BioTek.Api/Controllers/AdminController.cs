@@ -365,16 +365,11 @@ public class AdminController : ControllerBase
 
     [HttpGet("health")]
     [AllowAnonymous]
-    public async Task<IActionResult> Get()
+    public IActionResult Get()
     {
-        var usuarios = await _usuarioRepository.GetAllAsync();
-        
-        return Ok(new
-        {
-            status = "ok",
-            timestamp = DateTime.UtcNow,
-            totalUsuarios = usuarios.Count(),
-            servico = "BioTek API"
+        return Ok(new { 
+            status = "ok", 
+            timestamp = DateTime.UtcNow 
         });
     }
 }

@@ -87,7 +87,8 @@ public class HomeService : IHomeService
             livroAtual.PaginaAtual,
             livroAtual.TotalPaginas,
             livroAtual.Pausado,
-            livroAtual.UltimaLeitura
+            livroAtual.UltimaLeitura,
+            livroAtual.Tipo, livroAtual.MinutoAtual, livroAtual.TotalMinutos
         },
         listaLeitura,
         topAvaliados

@@ -18,4 +18,9 @@ public class Livro : BaseEntity
     public int? PaginaAtual { get; set; }
     public int? TotalPaginas { get; set; }
     public DateTime? UltimaLeitura { get; set; }
+    
+    // 🆕 Campos para Audiobook
+    public string? Tipo { get; set; } = "livro";  // "livro" ou "audiobook"
+    public int? MinutoAtual { get; set; }
+    public int? TotalMinutos { get; set; }
 }

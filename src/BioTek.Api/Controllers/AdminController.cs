@@ -3,6 +3,7 @@ using System.Text;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BioTek.Api.Controllers;
@@ -360,5 +361,20 @@ public class AdminController : ControllerBase
         if (!await IsAdmin()) return Forbid();
         await _livroRepository.DeleteAsync(id);
         return NoContent();
+    }
+
+    [HttpGet("health")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Get()
+    {
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        
+        return Ok(new
+        {
+            status = "ok",
+            timestamp = DateTime.UtcNow,
+            totalUsuarios = usuarios.Count(),
+            servico = "BioTek API"
+        });
     }
 }

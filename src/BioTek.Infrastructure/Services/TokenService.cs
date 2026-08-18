@@ -42,4 +42,9 @@ public class TokenService
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+
+    public string GerarRefreshToken()
+    {
+        return Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+    }
 }

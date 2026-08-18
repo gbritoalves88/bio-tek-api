@@ -151,6 +151,9 @@ public class UsuarioService : IUsuarioService
                 l.Status,
                 l.DataCriacao,
                 l.Descricao,
+                l.Tipo,
+                l.TotalMinutos,
+                l.MinutoAtual,
                 Avaliacao = avaliacoes.FirstOrDefault(a => a.IdLivro == l.Id) is { } av
                     ? new { av.Id, av.Nota, av.DataCriacao }
                     : null,

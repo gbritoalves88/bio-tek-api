@@ -1,9 +1,9 @@
 using System.Text.Json;
+using BioTek.Api.Models;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
-using BioTek.Api.Models; 
 
 namespace BioTek.Application.Services;
 
@@ -16,7 +16,6 @@ public class LivroService : ILivroService
     private readonly IRepository<ComentarioLivro> _comentarioLivroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
-    private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
 
     public LivroService(
         IRepository<Livro> livroRepository,
@@ -41,7 +40,6 @@ public class LivroService : ILivroService
         return await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
     }
 
-
     public async Task<List<object>> GetMeusLivrosAsync(string usuarioId)
     {
         var livros = await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
@@ -64,6 +62,13 @@ public class LivroService : ILivroService
                 l.Progresso,
                 l.DataCriacao,
                 l.DataAtualizacao,
+                l.Tipo,
+                l.MinutoAtual,
+                l.TotalMinutos,
+                l.PaginaAtual,
+                l.TotalPaginas,
+                l.Pausado,
+                l.UltimaLeitura,
                 Avaliacao = av == null ? null : new { av.Id, av.Nota, av.DataCriacao }
             };
         }).ToList();
@@ -76,16 +81,13 @@ public class LivroService : ILivroService
 
     public async Task<Livro> CriarAsync(Livro livro)
     {
-
-            // 🆕 Verificar duplicidade (mesmo usuário + mesmo título)
         var existentes = await _livroRepository.FindAsync(
-            l => l.IdUsuario == livro.IdUsuario && 
+            l => l.IdUsuario == livro.IdUsuario &&
                 l.Titulo.ToLower() == livro.Titulo.ToLower());
-        
+
         if (existentes.Any())
             throw new InvalidOperationException("Você já tem este livro na sua biblioteca");
-            
-        // Valida se a coleção existe (se informada)
+
         if (!string.IsNullOrEmpty(livro.IdColecao))
         {
             var colecao = await _colecaoRepository.GetByIdAsync(livro.IdColecao);
@@ -97,10 +99,13 @@ public class LivroService : ILivroService
         livro.DataCriacao = DateTime.UtcNow;
         livro.Status = StatusLeitura.QueroLer;
 
+        // 🆕 Garantir tipo default
+        if (string.IsNullOrEmpty(livro.Tipo))
+            livro.Tipo = "livro";
+
         await _livroRepository.AddAsync(livro);
         return livro;
     }
-
 
     private async Task<Livro?> BuscarOpenLibraryBooks(string isbn)
     {
@@ -121,7 +126,8 @@ public class LivroService : ILivroService
                 Descricao = GetDescricao(bookElement),
                 Imagem = GetCapa(bookElement),
                 CodigoBarras = isbn,
-                Status = StatusLeitura.QueroLer
+                Status = StatusLeitura.QueroLer,
+                Tipo = "livro"
             };
         }
         catch
@@ -156,7 +162,8 @@ public class LivroService : ILivroService
                     ? $"https://covers.openlibrary.org/b/id/{coverId.GetInt32()}-L.jpg"
                     : null,
                 CodigoBarras = isbn,
-                Status = StatusLeitura.QueroLer
+                Status = StatusLeitura.QueroLer,
+                Tipo = "livro"
             };
         }
         catch
@@ -165,17 +172,14 @@ public class LivroService : ILivroService
         }
     }
 
-     public async Task<Livro?> BuscarPorIsbnAsync(string isbn)
+    public async Task<Livro?> BuscarPorIsbnAsync(string isbn)
     {
-        // 1. Open Library Books
         var livro = await BuscarOpenLibraryBooks(isbn);
         if (livro != null) return livro;
 
-        // 2. Open Library Search
         livro = await BuscarOpenLibrarySearch(isbn);
         if (livro != null) return livro;
 
-        // 3. Google Books
         var apiKey = _configuration["BooksApi:GoogleApiKey"];
         if (!string.IsNullOrEmpty(apiKey))
         {
@@ -212,7 +216,8 @@ public class LivroService : ILivroService
                     ? t.GetString()
                     : null,
                 CodigoBarras = isbn,
-                Status = StatusLeitura.QueroLer
+                Status = StatusLeitura.QueroLer,
+                Tipo = "livro"
             };
         }
         catch
@@ -249,13 +254,11 @@ public class LivroService : ILivroService
         return null;
     }
 
-
     public async Task<Livro?> AtualizarAsync(string id, Livro livro, int? estrelas = null)
     {
         var existente = await _livroRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-        // Valida se a coleção existe (se informada)
         if (!string.IsNullOrEmpty(livro.IdColecao))
         {
             var colecao = await _colecaoRepository.GetByIdAsync(livro.IdColecao);
@@ -268,32 +271,40 @@ public class LivroService : ILivroService
         livro.DataAtualizacao = DateTime.UtcNow;
         livro.IdUsuario = existente.IdUsuario;
 
+        // 🆕 Preservar tipo se não for enviado
+        if (string.IsNullOrEmpty(livro.Tipo))
+            livro.Tipo = existente.Tipo ?? "livro";
+
+        // 🆕 Preservar progresso se não for enviado
+        livro.Progresso = existente.Progresso;
+        livro.PaginaAtual = existente.PaginaAtual;
+        livro.TotalPaginas = existente.TotalPaginas;
+        livro.MinutoAtual = existente.MinutoAtual;
+        livro.TotalMinutos = existente.TotalMinutos;
+        livro.UltimaLeitura = existente.UltimaLeitura;
+        livro.Pausado = existente.Pausado;
+
         await _livroRepository.UpdateAsync(id, livro);
 
-        // 🆕 Processar avaliação se status = Lido (3) e tem estrelas
         if (livro.Status == StatusLeitura.Lido && estrelas.HasValue)
         {
-            // Validar se a nota está no range válido
             if (estrelas.Value < 1 || estrelas.Value > 5)
                 throw new InvalidOperationException("Nota deve ser entre 1 e 5");
 
             var nota = (Nota)estrelas.Value;
 
-            // Buscar avaliação existente deste usuário para este livro
             var avaliacoesExistentes = await _avaliacaoLivroRepository
                 .FindAsync(a => a.IdLivro == id && a.IdUsuario == livro.IdUsuario);
             var avaliacaoExistente = avaliacoesExistentes.FirstOrDefault();
 
             if (avaliacaoExistente != null)
             {
-                // Atualizar avaliação existente
                 avaliacaoExistente.Nota = nota;
                 avaliacaoExistente.DataAtualizacao = DateTime.UtcNow;
                 await _avaliacaoLivroRepository.UpdateAsync(avaliacaoExistente.Id, avaliacaoExistente);
             }
             else
             {
-                // Criar nova avaliação
                 var novaAvaliacao = new AvaliacaoLivro
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -363,6 +374,13 @@ public class LivroService : ILivroService
                 livro.Progresso,
                 livro.DataCriacao,
                 livro.DataAtualizacao,
+                livro.Tipo,
+                livro.MinutoAtual,
+                livro.TotalMinutos,
+                livro.PaginaAtual,
+                livro.TotalPaginas,
+                livro.Pausado,
+                livro.UltimaLeitura,
                 Avaliacao = avaliacao == null ? null : new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao },
                 Comentarios = comentariosDoLivro
             };
@@ -387,6 +405,12 @@ public class LivroService : ILivroService
         if (request.Pausado.HasValue)
             existente.Pausado = request.Pausado.Value;
 
+        if (request.MinutoAtual.HasValue)
+            existente.MinutoAtual = request.MinutoAtual.Value;
+
+        if (request.TotalMinutos.HasValue)
+            existente.TotalMinutos = request.TotalMinutos.Value;
+
         existente.UltimaLeitura = DateTime.UtcNow;
         existente.DataAtualizacao = DateTime.UtcNow;
 
@@ -394,8 +418,6 @@ public class LivroService : ILivroService
             existente.Status = StatusLeitura.Lendo;
 
         await _livroRepository.UpdateAsync(id, existente);
-
         return existente;
     }
-
 }

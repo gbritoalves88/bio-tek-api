@@ -7,6 +7,7 @@ using BioTek.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace BioTek.Api.Controllers;
 
@@ -27,61 +28,6 @@ public class AuthController : ControllerBase
         _tokenService = tokenService;
         _configuration = configuration;
 
-    }
-
-    [HttpPost("mock")]
-    public async Task<IActionResult> LoginMock([FromBody] SocialLoginRequest request)
-    {
-        if (string.IsNullOrEmpty(request.Nome) || string.IsNullOrEmpty(request.Email))
-            return BadRequest(new { mensagem = "Nome e Email são obrigatórios" });
-
-        var googleId = "mock-" + Guid.NewGuid().ToString("N")[..8];
-        var nome = request.Nome;
-        var email = request.Email;
-
-        var usuarios = await _usuarioRepository.FindAsync(u => u.Email == email);
-        var usuario = usuarios.FirstOrDefault();
-        bool novoUsuario = false;
-
-        if (usuario == null)
-        {
-            novoUsuario = true;
-            usuario = new Usuario
-            {
-                IdGoogle = googleId,
-                Nome = nome,
-                Email = email,
-                Nickname = request.Nickname ?? ""
-            };
-            await _usuarioRepository.AddAsync(usuario);
-        }
-        else
-        {
-            usuario.Nome = nome;
-            usuario.DataAtualizacao = DateTime.UtcNow;
-            await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
-
-            // 🔴 Verificar conta desativada
-            if (usuario.Ativo == false)
-                return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
-        }
-
-        var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "mock");
-
-        await RegistrarAcesso(usuario.Id);
-
-        return Ok(new
-        {
-            token,
-            novoUsuario = novoUsuario || !usuario.AceitouTermos,
-            precisaAceitarTermos = !usuario.AceitouTermos,
-            usuario = new
-            {
-                usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
-                usuario.Descricao, usuario.Avatar, usuario.Tema,
-                usuario.Adm, usuario.Ativo, usuario.AceitouTermos
-            }
-        });
     }
 
     [HttpPost("google")]
@@ -132,12 +78,18 @@ public class AuthController : ControllerBase
             }
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
+            var refreshToken = _tokenService.GerarRefreshToken();
+
+            usuario.RefreshToken = refreshToken;
+            await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+
 
             await RegistrarAcesso(usuario.Id);
 
             return Ok(new
             {
                 token,
+                refreshToken,
                 novoUsuario = novoUsuario || !usuario.AceitouTermos,
                 precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
@@ -233,12 +185,16 @@ public class AuthController : ControllerBase
             }
 
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
+            var refreshToken = _tokenService.GerarRefreshToken();
 
-            await RegistrarAcesso(usuario.Id);
+            usuario.RefreshToken = refreshToken;
+            await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+                        await RegistrarAcesso(usuario.Id);
 
             return Ok(new
             {
                 token,
+                refreshToken,
                 novoUsuario = novoUsuario || !usuario.AceitouTermos,
                 precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
@@ -257,6 +213,43 @@ public class AuthController : ControllerBase
         {
             return StatusCode(500, new { mensagem = ex.Message });
         }
+    }
+
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+    {
+        if (string.IsNullOrEmpty(request.RefreshToken))
+            return BadRequest(new { mensagem = "Refresh token é obrigatório" });
+
+        // Buscar usuário pelo refresh token (não validar JWT)
+        var usuarios = await _usuarioRepository.FindAsync(u => u.RefreshToken == request.RefreshToken);
+        var usuario = usuarios.FirstOrDefault();
+
+        if (usuario == null)
+            return Unauthorized(new { mensagem = "Refresh token inválido" });
+
+        if (!usuario.Ativo)
+            return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
+
+        var novoAccessToken = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "refresh");
+        var novoRefreshToken = _tokenService.GerarRefreshToken();
+
+        usuario.RefreshToken = novoRefreshToken;
+        usuario.DataAtualizacao = DateTime.UtcNow;
+        await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
+
+        return Ok(new
+        {
+            token = novoAccessToken,
+            refreshToken = novoRefreshToken,
+            usuario = new
+            {
+                usuario.Id, usuario.Nome, usuario.Email, usuario.Nickname,
+                usuario.Descricao, usuario.Avatar, usuario.Tema,
+                usuario.Adm, usuario.Ativo, usuario.AceitouTermos
+            }
+        });
     }
 
     private async Task RegistrarAcesso(string usuarioId)

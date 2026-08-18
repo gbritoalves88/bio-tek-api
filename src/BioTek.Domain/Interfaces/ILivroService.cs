@@ -1,5 +1,5 @@
 using BioTek.Domain.Entities;
-using BioTek.Api.Models; 
+using BioTek.Api.Models;
 
 namespace BioTek.Domain.Interfaces;
 

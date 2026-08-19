@@ -178,5 +178,16 @@ public class LivroController : ControllerBase
             return NotFound();
         }
     }
+
+    /// <summary>
+    /// Busca atividades de leitura de um usuário (público)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}/atividades")]
+    public async Task<IActionResult> GetAtividadesPorUsuario(string usuarioId)
+    {
+        var atividades = await _livroService.GetAtividadesPorUsuarioAsync(usuarioId);
+        return Ok(atividades);
+    }
     
 }

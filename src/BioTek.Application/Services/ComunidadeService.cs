@@ -66,6 +66,135 @@ public class ComunidadeService : IComunidadeService
             if (livro == null) continue;
 
             var comentariosDoLivro = comentarios
+                .Where(c => c.IdLivro == av.IdLivro && c.Origem != "Atividade") // Excluir atividades dos comentários
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Comentario,
+                    c.DataCriacao,
+                    Usuario = usuarioMap.TryGetValue(c.IdUsuario, out var cu) ? new
+                    {
+                        cu.Id,
+                        cu.Nickname
+                    } : null
+                }).ToList();
+
+            atividades.Add(new AtividadeFeed
+            {
+                Id = av.Id,
+                Tipo = "livro_avaliado",
+                Usuario = u == null ? null : new UsuarioFeed
+                {
+                    Id = u.Id,
+                    Nome = u.Nome,
+                    Nickname = u.Nickname,
+                    Avatar = u.Avatar,
+                    Segue = seguindoIds.Contains(av.IdUsuario)
+                },
+                Livro = new LivroFeed
+                {
+                    Id = livro.Id,
+                    Titulo = livro.Titulo,
+                    Autor = livro.Autor,
+                    Imagem = livro.Imagem
+                },
+                Avaliacao = new AvaliacaoFeed { Nota = (int)av.Nota },
+                Comentarios = comentariosDoLivro,
+                Data = av.DataAtualizacao ?? av.DataCriacao,
+                Curtidas = curtidas.Count(c => c.IdAtividade == av.Id),
+                Curtiu = curtidas.Any(c => c.IdAtividade == av.Id && c.IdUsuario == meuId)
+            });
+        }
+
+        // Processa LIVROS (novo, lendo, lido)
+        var ultimosLivros = livros
+            .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
+            .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
+            .Take(limite / 2)
+            .ToList();
+
+        foreach (var livro in ultimosLivros)
+        {
+            if (string.IsNullOrEmpty(livro.IdUsuario)) continue;
+
+            usuarioMap.TryGetValue(livro.IdUsuario, out var u);
+
+            // 🆕 Buscar última atividade com frase para este livro
+            var ultimaAtividade = comentarios
+                .Where(c => c.IdLivro == livro.Id && c.Origem == "Atividade")
+                .OrderByDescending(c => c.DataCriacao)
+                .FirstOrDefault();
+
+            atividades.Add(new AtividadeFeed
+            {
+                Id = livro.Id,
+                Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
+                    livro.Status == StatusLeitura.Lido ? "livro_lido" : "livro_novo",
+                Usuario = u == null ? null : new UsuarioFeed
+                {
+                    Id = u.Id,
+                    Nome = u.Nome,
+                    Nickname = u.Nickname,
+                    Avatar = u.Avatar,
+                    Segue = seguindoIds.Contains(livro.IdUsuario)
+                },
+                Livro = new LivroFeed
+                {
+                    Id = livro.Id,
+                    Titulo = livro.Titulo,
+                    Autor = livro.Autor,
+                    Imagem = livro.Imagem
+                },
+                Data = ultimaAtividade?.DataCriacao ?? livro.DataAtualizacao ?? livro.DataCriacao, // 🆕 Usa data da atividade
+                Curtidas = curtidas.Count(c => c.IdAtividade == livro.Id),
+                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId),
+                Progresso = livro.Progresso,
+                PaginaAtual = livro.PaginaAtual,
+                TotalPaginas = livro.TotalPaginas,
+                Frase = ultimaAtividade?.Comentario // 🆕 Frase da atividade
+            });
+        }
+
+        return atividades
+            .OrderByDescending(a => a.Data)
+            .Take(limite)
+            .ToList();
+    }
+
+    public async Task<List<AtividadeFeed>> GetFeedAsyncOld(string? meuId = null, int limite = 30)
+    {
+        if (string.IsNullOrEmpty(meuId))
+            return new List<AtividadeFeed>();
+
+        var atividades = new List<AtividadeFeed>();
+
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        var livros = await _livroRepository.GetAllAsync();
+        var avaliacoes = await _avaliacaoRepository.GetAllAsync();
+        var comentarios = await _comentarioRepository.GetAllAsync();
+        var seguindo = await _seguidorRepository.FindAsync(s => s.IdSeguidor == meuId);
+        var curtidas = await _curtidaRepository.GetAllAsync();
+
+        var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
+        var livroMap = livros.ToDictionary(l => l.Id, l => l);
+        var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
+
+        // Processa AVALIAÇÕES
+        var ultimasAvaliacoes = avaliacoes
+            .Where(a => !string.IsNullOrEmpty(a.IdUsuario) && a.IdUsuario != meuId)
+            .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
+            .Take(limite / 2)
+            .ToList();
+
+        foreach (var av in ultimasAvaliacoes)
+        {
+            if (string.IsNullOrEmpty(av.IdUsuario)) continue;
+
+            usuarioMap.TryGetValue(av.IdUsuario, out var u);
+            livroMap.TryGetValue(av.IdLivro, out var livro);
+            if (livro == null) continue;
+
+            var comentariosDoLivro = comentarios
                 .Where(c => c.IdLivro == av.IdLivro)
                 .Select(c => new
                 {

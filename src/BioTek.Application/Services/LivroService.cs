@@ -387,7 +387,7 @@ public class LivroService : ILivroService
         }).ToList();
     }
 
-    public async Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request)
+    public async Task<Livro?> AtualizarProgressoAsyncOld(string id, string usuarioId, AtualizarProgressoRequest request)
     {
         var existente = await _livroRepository.GetByIdAsync(id);
         if (existente == null || existente.IdUsuario != usuarioId)
@@ -419,5 +419,96 @@ public class LivroService : ILivroService
 
         await _livroRepository.UpdateAsync(id, existente);
         return existente;
+    }
+
+    public async Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request)
+    {
+        var existente = await _livroRepository.GetByIdAsync(id);
+        if (existente == null || existente.IdUsuario != usuarioId)
+            return null;
+
+        if (request.PaginaAtual.HasValue)
+            existente.PaginaAtual = request.PaginaAtual.Value;
+
+        if (request.TotalPaginas.HasValue)
+            existente.TotalPaginas = request.TotalPaginas.Value;
+
+        if (request.Progresso.HasValue)
+            existente.Progresso = request.Progresso.Value;
+
+        if (request.Pausado.HasValue)
+            existente.Pausado = request.Pausado.Value;
+
+        if (request.MinutoAtual.HasValue)
+            existente.MinutoAtual = request.MinutoAtual.Value;
+
+        if (request.TotalMinutos.HasValue)
+            existente.TotalMinutos = request.TotalMinutos.Value;
+
+        existente.UltimaLeitura = DateTime.UtcNow;
+        existente.DataAtualizacao = DateTime.UtcNow;
+
+        if (request.Pausado == false)
+            existente.Status = StatusLeitura.Lendo;
+
+        await _livroRepository.UpdateAsync(id, existente);
+
+        // 🆕 Se tiver frase, criar atividade
+        if (!string.IsNullOrWhiteSpace(request.Frase))
+        {
+            
+            var atividade = new ComentarioLivro
+            {
+                Id = Guid.NewGuid().ToString(),
+                IdLivro = id,
+                IdUsuario = usuarioId,
+                Comentario = request.Frase.Trim(),
+                Origem = "Atividade",
+                DataCriacao = DateTime.UtcNow,
+                // 🆕 Salvar progresso no momento
+                Progresso = existente.Progresso,
+                PaginaAtual = existente.PaginaAtual,
+                TotalPaginas = existente.TotalPaginas,
+                MinutoAtual = existente.MinutoAtual,
+                TotalMinutos = existente.TotalMinutos
+            };
+            await _comentarioLivroRepository.AddAsync(atividade);
+            
+        }
+
+        return existente;
+    }
+
+    // 🆕 Novo método: Buscar atividades do usuário
+    public async Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId)
+    {
+        var atividades = await _comentarioLivroRepository.FindAsync(c => 
+            c.IdUsuario == usuarioId && 
+            c.Origem == "Atividade");
+
+        var livros = await _livroRepository.GetAllAsync();
+
+        return atividades
+            .Select(a => new
+            {
+                a.Id,
+                a.Comentario,
+                a.DataCriacao,
+                a.Progresso,        // 🆕 Progresso da atividade
+                a.PaginaAtual,       // 🆕
+                a.TotalPaginas,      // 🆕
+                a.MinutoAtual,       // 🆕
+                a.TotalMinutos,      // 🆕
+                Livro = livros.FirstOrDefault(l => l.Id == a.IdLivro) is Livro livro ? new
+                {
+                    livro.Id,
+                    livro.Titulo,
+                    livro.Autor,
+                    livro.Imagem,
+                    livro.Tipo
+                } : null
+            })
+            .OrderByDescending(a => a.DataCriacao)
+            .ToList<object>();
     }
 }

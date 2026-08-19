@@ -4,11 +4,10 @@ namespace BioTek.Domain.Entities;
 
 public class NotificationSubscription : BaseEntity
 {
-    public string UserId { get; set; }
-    public string Token { get; set; }
-    public string Device { get; set; }
-    public string Platform { get; set; }
-    public DateTime? CreatedAt { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string Token { get; set; } = string.Empty;
+    public string Device { get; set; } = string.Empty;
+    public string Platform { get; set; } = string.Empty;
     public DateTime? LastUsedAt { get; set; }
     public bool IsActive { get; set; } = true;
 }

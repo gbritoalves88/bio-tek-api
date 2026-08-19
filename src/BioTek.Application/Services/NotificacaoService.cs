@@ -141,8 +141,7 @@ public class NotificacaoService : INotificacaoService
                     UserId = request.UserId,
                     Token = request.Token,
                     Device = request.Device,
-                    Platform = request.Platform,
-                    CreatedAt = DateTime.UtcNow,
+                    Platform = request.Platform,                
                     LastUsedAt = DateTime.UtcNow,
                     IsActive = true
                 };

@@ -20,4 +20,10 @@
     <ProjectReference Include="..\BioTek.Domain\BioTek.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="firebase-service-account.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

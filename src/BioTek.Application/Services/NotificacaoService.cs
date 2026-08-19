@@ -1,5 +1,8 @@
 using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
+using BioTek.Models;
+using BioTek.Models.DTOs;
+using Microsoft.Extensions.Logging;
 
 namespace BioTek.Application.Services;
 
@@ -8,15 +11,21 @@ public class NotificacaoService : INotificacaoService
     private readonly IRepository<Notificacao> _notificacaoRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly IRepository<Livro> _livroRepository;
+    private readonly IRepository<NotificationSubscription> _subscriptionRepository;
+    private readonly ILogger<NotificacaoService> _logger;
 
     public NotificacaoService(
         IRepository<Notificacao> notificacaoRepository,
         IRepository<Usuario> usuarioRepository,
-        IRepository<Livro> livroRepository)
+        IRepository<Livro> livroRepository,
+        IRepository<NotificationSubscription> subscriptionRepository,
+        ILogger<NotificacaoService> logger)
     {
         _notificacaoRepository = notificacaoRepository;
         _usuarioRepository = usuarioRepository;
         _livroRepository = livroRepository;
+        _subscriptionRepository = subscriptionRepository;
+        _logger = logger;
     }
 
     public async Task<List<Notificacao>> GetNaoLidasAsync(string usuarioId)
@@ -93,5 +102,92 @@ public class NotificacaoService : INotificacaoService
             Lida = false
         };
         await _notificacaoRepository.AddAsync(notificacao);
+    }
+
+     public async Task<bool> SubscribeAsync(SubscribeRequest request)
+    {
+        try
+        {
+
+            var oldSubscriptions = await _subscriptionRepository.FindAsync(s => 
+                s.UserId == request.UserId && 
+                s.Device == request.Device && 
+                s.IsActive);
+            
+                foreach (var old in oldSubscriptions)
+                {
+                    old.IsActive = false;
+                    await _subscriptionRepository.UpdateAsync(old.Id, old);
+                }
+    
+            var existingSubscription = (await _subscriptionRepository.FindAsync(s => s.Token == request.Token))
+                .FirstOrDefault();
+            
+            if (existingSubscription != null)
+            {
+                existingSubscription.UserId = request.UserId;
+                existingSubscription.Device = request.Device;
+                existingSubscription.Platform = request.Platform;
+                existingSubscription.LastUsedAt = DateTime.UtcNow;
+                existingSubscription.IsActive = true;
+                
+                await _subscriptionRepository.UpdateAsync(existingSubscription.Id, existingSubscription);
+            }
+            else
+            {
+                var subscription = new NotificationSubscription
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    UserId = request.UserId,
+                    Token = request.Token,
+                    Device = request.Device,
+                    Platform = request.Platform,
+                    CreatedAt = DateTime.UtcNow,
+                    LastUsedAt = DateTime.UtcNow,
+                    IsActive = true
+                };
+                
+                await _subscriptionRepository.AddAsync(subscription);
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao registrar subscription");
+            return false;
+        }
+    }
+
+    public async Task<bool> UnsubscribeAsync(UnsubscribeRequest request)
+    {
+        try
+        {
+            var subscription = (await _subscriptionRepository.FindAsync(s => 
+                s.Token == request.Token && s.UserId == request.UserId))
+                .FirstOrDefault();
+            
+            if (subscription != null)
+            {
+                subscription.IsActive = false;
+                subscription.LastUsedAt = DateTime.UtcNow;
+                await _subscriptionRepository.UpdateAsync(subscription.Id, subscription);
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao cancelar subscription");
+            return false;
+        }
+    }
+
+    public async Task<List<NotificationSubscription>> GetUserSubscriptionsAsync(string userId)
+    {
+        var subscriptions = await _subscriptionRepository.FindAsync(s => 
+            s.UserId == userId && s.IsActive);
+        
+        return subscriptions.ToList();
     }
 }

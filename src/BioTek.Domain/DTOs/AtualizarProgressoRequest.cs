@@ -8,4 +8,5 @@ public class AtualizarProgressoRequest
     public bool? Pausado { get; set; }
     public int? MinutoAtual { get; set; }      // 🆕
     public int? TotalMinutos { get; set; }     // 🆕
+    public string? Frase { get; set; } 
 }

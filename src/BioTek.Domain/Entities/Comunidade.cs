@@ -14,6 +14,7 @@ public class AtividadeFeed : BaseEntity
     public int? Progresso { get; set; }
     public int? PaginaAtual { get; set; }
     public int? TotalPaginas { get; set; }
+    public string? Frase { get; set; } 
 }
 
 public class UsuarioFeed : BaseEntity

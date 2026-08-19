@@ -1,4 +1,6 @@
 using BioTek.Domain.Entities;
+using BioTek.Models;
+using BioTek.Models.DTOs;
 
 namespace BioTek.Domain.Interfaces;
 
@@ -10,4 +12,9 @@ public interface INotificacaoService
     Task CriarNotificacaoSeguidor(string idUsuario, string idSeguidor, string nomeSeguidor);
     Task CriarNotificacaoComentario(string idUsuarioDono, string idLivro, string tituloLivro, string nomeComentador);
     Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro);
+     // Novos métodos para push notifications
+    Task<bool> SubscribeAsync(SubscribeRequest request);
+    Task<bool> UnsubscribeAsync(UnsubscribeRequest request);
+    Task<List<NotificationSubscription>> GetUserSubscriptionsAsync(string userId);
+
 }

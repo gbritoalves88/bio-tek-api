@@ -22,3 +22,4 @@ TestResults/
 appsettings.*.json
 !appsettings.json
 !appsettings.Development.json
+firebase-service-account.json

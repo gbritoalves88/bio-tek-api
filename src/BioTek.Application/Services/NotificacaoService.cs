@@ -189,4 +189,6 @@ public class NotificacaoService : INotificacaoService
         
         return subscriptions.ToList();
     }
+
+    
 }

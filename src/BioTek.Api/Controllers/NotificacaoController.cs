@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using BioTek.Api.Models;
 using BioTek.Domain.Interfaces;
 using BioTek.Models.DTOs;
 using BioTek.Services.Interfaces;
@@ -296,4 +297,29 @@ public class NotificacaoController : ControllerBase
     }
 
     #endregion
+
+    [HttpPost("registrar-decisao")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> RegistrarDecisao([FromBody] RegistrarDecisaoRequest request)
+    {
+        try
+        {
+            // Sempre usar o usuário autenticado
+            request.UserId = GetUsuarioId();
+            
+            var usuario = await _usuarioService.GetPorIdAsync(request.UserId);
+            if (usuario == null)
+                return NotFound(new { message = "Usuário não encontrado" });
+            
+            usuario.NotificacoesAtivas = request.Aceitou;
+            await _usuarioService.AtualizarAsync(usuario.Id, usuario);
+            
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao registrar decisão de notificação");
+            return StatusCode(500, new { message = "Erro interno" });
+        }
+    }
 }

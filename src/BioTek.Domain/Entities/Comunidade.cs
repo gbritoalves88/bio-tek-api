@@ -9,12 +9,14 @@ public class AtividadeFeed : BaseEntity
     public AvaliacaoFeed? Avaliacao { get; set; }
     public object? Comentarios { get; set; }
     public DateTime Data { get; set; }
-    public int Curtidas { get; set; }        
-    public bool Curtiu { get; set; } 
+    public int Curtidas { get; set; }
+    public bool Curtiu { get; set; }
     public int? Progresso { get; set; }
     public int? PaginaAtual { get; set; }
     public int? TotalPaginas { get; set; }
-    public string? Frase { get; set; } 
+    public int? MinutoAtual { get; set; }      // 🆕
+    public int? TotalMinutos { get; set; }     // 🆕
+    public string? Frase { get; set; }
 }
 
 public class UsuarioFeed : BaseEntity

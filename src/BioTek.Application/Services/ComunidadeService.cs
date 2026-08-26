@@ -50,6 +50,13 @@ public class ComunidadeService : IComunidadeService
         var livroMap = livros.ToDictionary(l => l.Id, l => l);
         var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
 
+        // 🆕 Livros que JÁ têm atividade de progresso
+        var livrosComAtividade = new HashSet<string>(
+            comentarios
+                .Where(c => c.Origem == "Atividade")
+                .Select(c => c.IdLivro)
+        );
+
         // ============ 1. PROCESSAR ATIVIDADES DE LEITURA (PROGRESSO) ============
         var atividadesLeitura = comentarios
             .Where(c => c.Origem == "Atividade" && !string.IsNullOrEmpty(c.IdUsuario) && c.IdUsuario != meuId)
@@ -67,7 +74,7 @@ public class ComunidadeService : IComunidadeService
 
             atividades.Add(new AtividadeFeed
             {
-                Id = atividade.Id, // ✅ ID da ATIVIDADE (não do livro!)
+                Id = atividade.Id,
                 Tipo = "livro_progresso",
                 Usuario = u == null ? null : new UsuarioFeed
                 {
@@ -155,6 +162,13 @@ public class ComunidadeService : IComunidadeService
         // ============ 3. PROCESSAR LIVROS (novo, lendo, lido) ============
         var ultimosLivros = livros
             .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
+            .Where(l => {
+                // 🆕 Se TEM atividade de progresso, NÃO mostra como "lendo" ou "lido"
+                if (livrosComAtividade.Contains(l.Id))
+                    return false;
+                
+                return true;
+            })
             .OrderByDescending(l => l.DataAtualizacao ?? l.DataCriacao)
             .Take(limite / 3)
             .ToList();
@@ -165,7 +179,7 @@ public class ComunidadeService : IComunidadeService
 
             usuarioMap.TryGetValue(livro.IdUsuario, out var u);
 
-            atividades.Add(new AtividadeFeed
+            var atividade = new AtividadeFeed
             {
                 Id = livro.Id,
                 Tipo = livro.Status == StatusLeitura.Lendo ? "livro_lendo" :
@@ -187,11 +201,18 @@ public class ComunidadeService : IComunidadeService
                 },
                 Data = livro.DataAtualizacao ?? livro.DataCriacao,
                 Curtidas = curtidas.Count(c => c.IdAtividade == livro.Id),
-                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId),
-                Progresso = livro.Progresso,
-                PaginaAtual = livro.PaginaAtual,
-                TotalPaginas = livro.TotalPaginas
-            });
+                Curtiu = curtidas.Any(c => c.IdAtividade == livro.Id && c.IdUsuario == meuId)
+            };
+
+            // 🆕 SÓ adiciona progresso se NÃO for "livro_lendo"
+            if (livro.Status != StatusLeitura.Lendo)
+            {
+                atividade.Progresso = livro.Progresso;
+                atividade.PaginaAtual = livro.PaginaAtual;
+                atividade.TotalPaginas = livro.TotalPaginas;
+            }
+
+            atividades.Add(atividade);
         }
 
         return atividades

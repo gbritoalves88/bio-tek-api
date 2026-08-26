@@ -15,4 +15,5 @@ public class ComentarioLivro : BaseEntity
     public int? TotalPaginas { get; set; }
     public int? MinutoAtual { get; set; }
     public int? TotalMinutos { get; set; }
+    
 }

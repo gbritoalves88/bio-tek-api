@@ -15,6 +15,7 @@ public class StreakNotificationBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<StreakNotificationBackgroundService> _logger;
+    private DateTime _ultimaExecucao = DateTime.MinValue;
 
     private static readonly TimeZoneInfo FusoBrasilia =
         TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
@@ -36,13 +37,13 @@ public class StreakNotificationBackgroundService : BackgroundService
             try
             {
                 var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
-                var horaAtual = agoraBrasilia.Hour;
+                var hoje = agoraBrasilia.Date;
 
-                // Só envia às 19h (Brasília)
-                //if (horaAtual == 16)
-                if (horaAtual == 16 && agoraBrasilia.Minute >= 35)
+                // 🆕 Envia UMA vez por dia
+                if (_ultimaExecucao.Date != hoje)
                 {
                     await EnviarLembretesStreak();
+                    _ultimaExecucao = agoraBrasilia;
                 }
             }
             catch (Exception ex)
@@ -78,12 +79,12 @@ public class StreakNotificationBackgroundService : BackgroundService
         {
             try
             {
-                // Verificar se já leu hoje
-                //if (streak.UltimaDataAtividade?.Date == hoje)
-                //{
-                    // Já leu hoje, não envia
-                //    continue;
-                //}
+                // 🆕 TESTE: Envia mesmo se já leu hoje (para testar)
+                // Depois descomente para produção:
+                // if (streak.UltimaDataAtividade?.Date == hoje)
+                // {
+                //     continue;
+                // }
 
                 // Verificar se o usuário está ativo
                 var usuario = await usuarioRepository.GetByIdAsync(streak.IdUsuario);

@@ -216,7 +216,16 @@ builder.Services.Configure<FirebaseSettings>(options =>
     options.ProjectId = Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID") 
                         ?? builder.Configuration["Firebase:ProjectId"];
     
-    options.ServiceAccountJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON");
+    var serviceAccountJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON");
+    
+    if (!string.IsNullOrEmpty(serviceAccountJson))
+    {
+        options.ServiceAccountJson = serviceAccountJson;
+    }
+    else
+    {
+        options.ServiceAccountJson = builder.Configuration["Firebase:ServiceAccountJson"];
+    }
 });
 
 builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>

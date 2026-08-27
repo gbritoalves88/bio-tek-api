@@ -219,6 +219,13 @@ builder.Services.Configure<FirebaseSettings>(options =>
     options.ServiceAccountJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON");
 });
 
+builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<StreakUsuario>(context, "StreakUsuarios");
+});
+
+
 // ==========================================
 // 5. SERVICES (regras de negócio)
 // ==========================================
@@ -237,7 +244,8 @@ builder.Services.AddScoped<IHomeService, HomeService>();
 builder.Services.AddScoped<INotificacaoService, NotificacaoService>();
 builder.Services.AddHttpClient<IFirebaseNotificationService, FirebaseNotificationService>();
 builder.Services.AddHostedService<ReadingReminderBackgroundService>();
-
+builder.Services.AddScoped<IStreakService, StreakService>();
+builder.Services.AddHostedService<StreakNotificationBackgroundService>();
 // ==========================================
 // 6. CONTROLLERS + SWAGGER
 // ==========================================

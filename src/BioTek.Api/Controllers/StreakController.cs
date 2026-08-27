@@ -43,4 +43,29 @@ public class StreakController : ControllerBase
         var metricas = await _streakService.GetMetricasMesAsync(GetUsuarioId());
         return Ok(metricas);
     }
+
+    // 🆕 ENDPOINTS PÚBLICOS PARA VISUALIZAÇÃO
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}")]
+    public async Task<IActionResult> GetStreakPorUsuario(string usuarioId)
+    {
+        var streak = await _streakService.GetStreakAsync(usuarioId);
+        return Ok(streak);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}/historico")]
+    public async Task<IActionResult> GetHistoricoPorUsuario(string usuarioId)
+    {
+        var historico = await _streakService.GetHistoricoAsync(usuarioId);
+        return Ok(historico);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("usuario/{usuarioId}/metricas-mes")]
+    public async Task<IActionResult> GetMetricasMesPorUsuario(string usuarioId)
+    {
+        var metricas = await _streakService.GetMetricasMesAsync(usuarioId);
+        return Ok(metricas);
+    }
 }

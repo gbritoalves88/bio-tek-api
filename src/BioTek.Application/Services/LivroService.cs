@@ -16,6 +16,7 @@ public class LivroService : ILivroService
     private readonly IRepository<ComentarioLivro> _comentarioLivroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
+    private readonly IStreakService _streakService;
 
     public LivroService(
         IRepository<Livro> livroRepository,
@@ -24,7 +25,8 @@ public class LivroService : ILivroService
         IConfiguration configuration,
         IRepository<ComentarioLivro> comentarioLivroRepository,
         IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
-        IRepository<Usuario> usuarioRepository)
+        IRepository<Usuario> usuarioRepository,
+        IStreakService streakService)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
@@ -33,6 +35,7 @@ public class LivroService : ILivroService
         _comentarioLivroRepository = comentarioLivroRepository;
         _avaliacaoLivroRepository = avaliacaoLivroRepository;
         _usuarioRepository = usuarioRepository;
+        _streakService = streakService;
     }
 
     public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId)
@@ -427,6 +430,8 @@ public class LivroService : ILivroService
         if (existente == null || existente.IdUsuario != usuarioId)
             return null;
 
+        
+
         if (request.PaginaAtual.HasValue)
             existente.PaginaAtual = request.PaginaAtual.Value;
 
@@ -452,6 +457,7 @@ public class LivroService : ILivroService
             existente.Status = StatusLeitura.Lendo;
 
         await _livroRepository.UpdateAsync(id, existente);
+        await _streakService.RegistrarAtividadeAsync(usuarioId);
 
         // 🆕 Se tiver frase, criar atividade
         if (!string.IsNullOrWhiteSpace(request.Frase))

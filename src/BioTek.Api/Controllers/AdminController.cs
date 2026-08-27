@@ -392,6 +392,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("health")]
+    [HttpHead("health")] // 🆕 ACEITA HEAD
     [AllowAnonymous]
     public IActionResult Get()
     {

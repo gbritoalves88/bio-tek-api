@@ -40,10 +40,10 @@ public class StreakNotificationBackgroundService : BackgroundService
 
                 // Só envia às 19h (Brasília)
                 //if (horaAtual == 16)
-                if (horaAtual == 16 && agoraBrasilia.Minute >= 35)
-                {
+               // if (horaAtual == 16 && agoraBrasilia.Minute >= 35)
+                //{
                     await EnviarLembretesStreak();
-                }
+                //}
             }
             catch (Exception ex)
             {

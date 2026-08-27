@@ -39,7 +39,7 @@ public class StreakNotificationBackgroundService : BackgroundService
                 var horaAtual = agoraBrasilia.Hour;
 
                 // Só envia às 19h (Brasília)
-                if (horaAtual == 07)
+                if (horaAtual == 15)
                 {
                     await EnviarLembretesStreak();
                 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BioTek.Domain.Entities;
@@ -49,26 +51,43 @@ namespace BioTek.Application.Services
         private async Task CheckInactiveReadersAsync()
         {
             using var scope = _serviceProvider.CreateScope();
-            
+
             var livroRepository = scope.ServiceProvider.GetRequiredService<IRepository<Livro>>();
+            var usuarioRepository = scope.ServiceProvider.GetRequiredService<IRepository<Usuario>>();
+            var streakRepository = scope.ServiceProvider.GetRequiredService<IRepository<StreakUsuario>>();
             var firebaseService = scope.ServiceProvider.GetRequiredService<IFirebaseNotificationService>();
+            var notificationRepository = scope.ServiceProvider.GetRequiredService<IRepository<NotificationSubscription>>();
 
-            // Buscar livros com status "Lendo" e sem atividade há 7 dias
-            var livrosEmAndamento = await livroRepository.FindAsync(l => 
-                l.Status == StatusLeitura.Lendo && 
-                l.UltimaLeitura != null && 
-                l.UltimaLeitura < DateTime.UtcNow.AddDays(-7));
+            var agora = DateTime.UtcNow;
+            var seteDias = agora.AddDays(-7);
 
-            var totalLivros = livrosEmAndamento.Count();
+            // 🆕 Buscar usuários COM streak ativo (para NÃO enviar)
+            var streaksAtivos = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
+            var usuariosComStreak = new HashSet<string>(streaksAtivos.Select(s => s.IdUsuario));
 
-            _logger.LogInformation($"Encontrados {totalLivros} livros em andamento sem atividade");
+            _logger.LogInformation($"Usuários com streak ativo: {usuariosComStreak.Count}");
 
-            foreach (var livro in livrosEmAndamento)
+            // ============ 1. LIVROS "LENDO" PARADOS HÁ 7 DIAS ============
+            var lendoParados = await livroRepository.FindAsync(l =>
+                l.Status == StatusLeitura.Lendo &&
+                l.UltimaLeitura != null &&
+                l.UltimaLeitura < seteDias &&
+                !usuariosComStreak.Contains(l.IdUsuario));
+
+            // 🆕 Agrupar por usuário e pegar 1 livro aleatório
+            var lendoPorUsuario = lendoParados
+                .GroupBy(l => l.IdUsuario)
+                .Select(g => g.OrderBy(x => Guid.NewGuid()).First())
+                .ToList();
+
+            _logger.LogInformation($"Livros 'Lendo' parados: {lendoPorUsuario.Count()}");
+
+            foreach (var livro in lendoPorUsuario)
             {
                 try
                 {
-                    _logger.LogInformation($"Enviando lembrete para usuário {livro.IdUsuario} sobre o livro '{livro.Titulo}'");
-                    
+                    _logger.LogInformation($"Enviando lembrete de leitura para {livro.IdUsuario} sobre '{livro.Titulo}'");
+
                     var sucesso = await firebaseService.SendReadingReminderAsync(
                         livro.IdUsuario,
                         livro.Titulo,
@@ -76,17 +95,104 @@ namespace BioTek.Application.Services
                     );
 
                     if (sucesso)
-                    {
-                        _logger.LogInformation($"Lembrete enviado com sucesso para {livro.IdUsuario}");
-                    }
+                        _logger.LogInformation($"Lembrete enviado para {livro.IdUsuario}");
                     else
-                    {
                         _logger.LogWarning($"Falha ao enviar lembrete para {livro.IdUsuario}");
-                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Erro ao processar livro {livro.Id}");
+                }
+            }
+
+            // ============ 2. LIVROS "QUERO LER" HÁ 7 DIAS (NUNCA COMEÇOU) ============
+            var queroLerParados = await livroRepository.FindAsync(l =>
+                l.Status == StatusLeitura.QueroLer &&
+                l.DataCriacao < seteDias &&
+                !usuariosComStreak.Contains(l.IdUsuario));
+
+            // 🆕 Agrupar por usuário e pegar 1 livro aleatório
+            var queroLerPorUsuario = queroLerParados
+                .GroupBy(l => l.IdUsuario)
+                .Select(g => g.OrderBy(x => Guid.NewGuid()).First())
+                .ToList();
+
+            _logger.LogInformation($"Livros 'Quero ler' parados: {queroLerPorUsuario.Count()}");
+
+            foreach (var livro in queroLerPorUsuario)
+            {
+                try
+                {
+                    var usuario = await usuarioRepository.GetByIdAsync(livro.IdUsuario);
+                    if (usuario == null || !usuario.Ativo)
+                        continue;
+
+                    var subscriptions = await notificationRepository.FindAsync(s =>
+                        s.UserId == livro.IdUsuario && s.IsActive);
+
+                    var tokens = subscriptions.Select(s => s.Token).ToList();
+
+                    if (tokens.Count == 0)
+                        continue;
+
+                    _logger.LogInformation($"Enviando 'Comece a ler' para {livro.IdUsuario} sobre '{livro.Titulo}'");
+
+                    await firebaseService.SendMulticastAsync(
+                        tokens,
+                        "📚 Comece sua leitura!",
+                        $"Você adicionou '{livro.Titulo}' mas ainda não começou. Que tal hoje?",
+                        $"/livros/{livro.Id}",
+                        new Dictionary<string, string>
+                        {
+                            { "type", "start_reading" },
+                            { "bookId", livro.Id }
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Erro ao enviar 'Comece a ler' para {livro.IdUsuario}");
+                }
+            }
+
+            // ============ 3. USUÁRIOS SEM LIVROS ============
+            var todosUsuarios = await usuarioRepository.GetAllAsync();
+            var todosLivros = await livroRepository.GetAllAsync();
+            var usuariosSemLivro = todosUsuarios
+                .Where(u => u.Ativo && !usuariosComStreak.Contains(u.Id))
+                .Where(u => !todosLivros.Any(l => l.IdUsuario == u.Id))
+                .ToList();
+
+            _logger.LogInformation($"Usuários sem livros: {usuariosSemLivro.Count}");
+
+            foreach (var usuario in usuariosSemLivro)
+            {
+                try
+                {
+                    var subscriptions = await notificationRepository.FindAsync(s =>
+                        s.UserId == usuario.Id && s.IsActive);
+
+                    var tokens = subscriptions.Select(s => s.Token).ToList();
+
+                    if (tokens.Count == 0)
+                        continue;
+
+                    _logger.LogInformation($"Enviando 'Adicione um livro' para {usuario.Id}");
+
+                    await firebaseService.SendMulticastAsync(
+                        tokens,
+                        "📕 Que tal começar?",
+                        "Adicione um livro no Bliteca e comece sua jornada de leitura!",
+                        "/inicio",
+                        new Dictionary<string, string>
+                        {
+                            { "type", "add_book" }
+                        }
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Erro ao enviar 'Adicione um livro' para {usuario.Id}");
                 }
             }
         }

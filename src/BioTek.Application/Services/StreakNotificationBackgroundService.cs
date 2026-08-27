@@ -79,12 +79,11 @@ public class StreakNotificationBackgroundService : BackgroundService
         {
             try
             {
-                // 🆕 TESTE: Envia mesmo se já leu hoje (para testar)
-                // Depois descomente para produção:
-                // if (streak.UltimaDataAtividade?.Date == hoje)
-                // {
-                //     continue;
-                // }
+
+                 if (streak.UltimaDataAtividade?.Date == hoje)
+                 {
+                     continue;
+                 }
 
                 // Verificar se o usuário está ativo
                 var usuario = await usuarioRepository.GetByIdAsync(streak.IdUsuario);

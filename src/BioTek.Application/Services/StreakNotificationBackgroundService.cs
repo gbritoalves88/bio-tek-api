@@ -39,7 +39,8 @@ public class StreakNotificationBackgroundService : BackgroundService
                 var horaAtual = agoraBrasilia.Hour;
 
                 // Só envia às 19h (Brasília)
-                if (horaAtual == 15)
+                //if (horaAtual == 16)
+                if (horaAtual == 16 && agoraBrasilia.Minute >= 35)
                 {
                     await EnviarLembretesStreak();
                 }
@@ -78,11 +79,11 @@ public class StreakNotificationBackgroundService : BackgroundService
             try
             {
                 // Verificar se já leu hoje
-                if (streak.UltimaDataAtividade?.Date == hoje)
-                {
+                //if (streak.UltimaDataAtividade?.Date == hoje)
+                //{
                     // Já leu hoje, não envia
-                    continue;
-                }
+                //    continue;
+                //}
 
                 // Verificar se o usuário está ativo
                 var usuario = await usuarioRepository.GetByIdAsync(streak.IdUsuario);

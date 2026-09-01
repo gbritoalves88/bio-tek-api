@@ -22,9 +22,6 @@ public class HomeController : ControllerBase
         return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
     }
 
-    /// <summary>
-    /// Obtém dados do dashboard da Home (lista de leitura e top avaliados)
-    /// </summary>
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboard()
     {

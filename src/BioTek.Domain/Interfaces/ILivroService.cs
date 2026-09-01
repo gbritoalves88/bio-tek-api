@@ -5,7 +5,6 @@ namespace BioTek.Domain.Interfaces;
 
 public interface ILivroService
 {
-
     Task<List<object>> GetMeusLivrosAsync(string usuarioId);
     Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId);
     Task<Livro?> GetPorIdAsync(string id);
@@ -16,5 +15,6 @@ public interface ILivroService
     Task<IEnumerable<Livro>> GetTodosAsync();
     Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId);
     Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request);
-    Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId); 
+    Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId);
+    Task<object?> GetDetalhesInternoAsync(string id); // 🆕
 }

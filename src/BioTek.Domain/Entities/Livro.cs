@@ -24,3 +24,12 @@ public class Livro : BaseEntity
     public int? MinutoAtual { get; set; }
     public int? TotalMinutos { get; set; }
 }
+
+public class LivroDetalhesWeb
+{
+    public string? Editora { get; set; }
+    public int? Ano { get; set; }
+    public int? Paginas { get; set; }
+    public List<string>? Generos { get; set; }
+    public string? Sinopse { get; set; }
+}

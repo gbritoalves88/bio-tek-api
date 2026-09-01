@@ -51,7 +51,7 @@ public class ComunidadeService : IComunidadeService
         var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
 
         // 🆕 DATA LIMITE: ÚLTIMOS 7 DIAS
-        var seteDias = DateTime.UtcNow.AddDays(-7);
+        var ultimosDias = DateTime.UtcNow.AddDays(-30);
 
         // 🆕 Livros que JÁ têm atividade de progresso
         var livrosComAtividade = new HashSet<string>(
@@ -63,7 +63,7 @@ public class ComunidadeService : IComunidadeService
         // ============ 1. PROCESSAR ATIVIDADES DE LEITURA (PROGRESSO) ============
         var atividadesLeitura = comentarios
             .Where(c => c.Origem == "Atividade" && !string.IsNullOrEmpty(c.IdUsuario) && c.IdUsuario != meuId)
-            .Where(c => c.DataCriacao >= seteDias) // 🆕 ÚLTIMOS 7 DIAS
+            .Where(c => c.DataCriacao >= ultimosDias) // 🆕 ÚLTIMOS 7 DIAS
             .OrderByDescending(c => c.DataCriacao)
             .Take(limite / 3)
             .ToList();
@@ -110,7 +110,7 @@ public class ComunidadeService : IComunidadeService
         // ============ 2. PROCESSAR AVALIAÇÕES ============
         var ultimasAvaliacoes = avaliacoes
             .Where(a => !string.IsNullOrEmpty(a.IdUsuario) && a.IdUsuario != meuId)
-            .Where(a => (a.DataAtualizacao ?? a.DataCriacao) >= seteDias) // 🆕 ÚLTIMOS 7 DIAS
+            .Where(a => (a.DataAtualizacao ?? a.DataCriacao) >= ultimosDias) // 🆕 ÚLTIMOS 7 DIAS
             .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
             .Take(limite / 3)
             .ToList();
@@ -167,7 +167,7 @@ public class ComunidadeService : IComunidadeService
         // ============ 3. PROCESSAR LIVROS (novo, lendo, lido) ============
         var ultimosLivros = livros
             .Where(l => !string.IsNullOrEmpty(l.IdUsuario) && l.IdUsuario != meuId)
-            .Where(l => (l.DataAtualizacao ?? l.DataCriacao) >= seteDias) // 🆕 ÚLTIMOS 7 DIAS
+            .Where(l => (l.DataAtualizacao ?? l.DataCriacao) >= ultimosDias) // 🆕 ÚLTIMOS 7 DIAS
             .Where(l => {
                 // 🆕 Se TEM atividade de progresso, NÃO mostra como "lendo" ou "lido"
                 if (livrosComAtividade.Contains(l.Id))

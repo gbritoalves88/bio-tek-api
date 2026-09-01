@@ -189,5 +189,15 @@ public class LivroController : ControllerBase
         var atividades = await _livroService.GetAtividadesPorUsuarioAsync(usuarioId);
         return Ok(atividades);
     }
-    
+
+    [AllowAnonymous]
+    [HttpGet("{id}/detalhes-interno")]
+    public async Task<IActionResult> GetDetalhesInterno(string id)
+    {
+        var detalhes = await _livroService.GetDetalhesInternoAsync(id);
+        if (detalhes == null)
+            return NotFound(new { mensagem = "Livro não encontrado" });
+        
+        return Ok(detalhes);
+    }
 }

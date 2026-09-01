@@ -17,6 +17,8 @@ public class LivroService : ILivroService
     private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly IStreakService _streakService;
+    private readonly IRepository<Catalogo> _catalogoRepository;
+
 
     public LivroService(
         IRepository<Livro> livroRepository,
@@ -26,6 +28,7 @@ public class LivroService : ILivroService
         IRepository<ComentarioLivro> comentarioLivroRepository,
         IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
         IRepository<Usuario> usuarioRepository,
+        IRepository<Catalogo> catalogoRepository, // 🆕
         IStreakService streakService)
     {
         _livroRepository = livroRepository;
@@ -35,6 +38,7 @@ public class LivroService : ILivroService
         _comentarioLivroRepository = comentarioLivroRepository;
         _avaliacaoLivroRepository = avaliacaoLivroRepository;
         _usuarioRepository = usuarioRepository;
+        _catalogoRepository = catalogoRepository; // 🆕
         _streakService = streakService;
     }
 
@@ -390,39 +394,6 @@ public class LivroService : ILivroService
         }).ToList();
     }
 
-    public async Task<Livro?> AtualizarProgressoAsyncOld(string id, string usuarioId, AtualizarProgressoRequest request)
-    {
-        var existente = await _livroRepository.GetByIdAsync(id);
-        if (existente == null || existente.IdUsuario != usuarioId)
-            return null;
-
-        if (request.PaginaAtual.HasValue)
-            existente.PaginaAtual = request.PaginaAtual.Value;
-
-        if (request.TotalPaginas.HasValue)
-            existente.TotalPaginas = request.TotalPaginas.Value;
-
-        if (request.Progresso.HasValue)
-            existente.Progresso = request.Progresso.Value;
-
-        if (request.Pausado.HasValue)
-            existente.Pausado = request.Pausado.Value;
-
-        if (request.MinutoAtual.HasValue)
-            existente.MinutoAtual = request.MinutoAtual.Value;
-
-        if (request.TotalMinutos.HasValue)
-            existente.TotalMinutos = request.TotalMinutos.Value;
-
-        existente.UltimaLeitura = DateTime.UtcNow;
-        existente.DataAtualizacao = DateTime.UtcNow;
-
-        if (request.Pausado == false)
-            existente.Status = StatusLeitura.Lendo;
-
-        await _livroRepository.UpdateAsync(id, existente);
-        return existente;
-    }
 
     public async Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request)
     {
@@ -430,7 +401,10 @@ public class LivroService : ILivroService
         if (existente == null || existente.IdUsuario != usuarioId)
             return null;
 
-        
+        // Guardar estado anterior
+        var pausadoAnterior = existente.Pausado;
+        var progressoAnterior = existente.Progresso;
+        var primeiraLeitura = !existente.UltimaLeitura.HasValue;
 
         if (request.PaginaAtual.HasValue)
             existente.PaginaAtual = request.PaginaAtual.Value;
@@ -459,19 +433,52 @@ public class LivroService : ILivroService
         await _livroRepository.UpdateAsync(id, existente);
         await _streakService.RegistrarAtividadeAsync(usuarioId);
 
-        // 🆕 Se tiver frase, criar atividade
+        var progressoAtual = existente.Progresso;
+        var deveRegistrar = false;
+        var mensagem = "";
+
+        // 🆕 1. Primeira vez que lê
+        if (primeiraLeitura && request.Pausado != true)
+        {
+            deveRegistrar = true;
+            mensagem = "Começou a leitura";
+        }
+        // 🆕 2. Pausou/Retomou
+        else if (request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior)
+        {
+            deveRegistrar = true;
+            mensagem = request.Pausado.Value ? "Pausou a leitura" : "Retomou a leitura";
+        }
+        // 🆕 3. Marco de progresso (25%, 50%, 75%, 100%)
+        else if (progressoAtual.HasValue && progressoAnterior != progressoAtual)
+        {
+            var marco = progressoAtual.Value;
+            if (marco == 25 || marco == 50 || marco == 75 || marco == 100)
+            {
+                deveRegistrar = true;
+                mensagem = $"Avançou para {marco}% da leitura";
+            }
+        }
+
+        // 🆕 4. Tem frase (SEMPRE registra)
         if (!string.IsNullOrWhiteSpace(request.Frase))
         {
-            
+            deveRegistrar = true;
+            mensagem = request.Frase.Trim();
+        }
+
+        if (deveRegistrar)
+        {
             var atividade = new ComentarioLivro
             {
                 Id = Guid.NewGuid().ToString(),
                 IdLivro = id,
                 IdUsuario = usuarioId,
-                Comentario = request.Frase.Trim(),
-                Origem = "Atividade",
+                Comentario = mensagem,
+                Origem = request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior
+                    ? (request.Pausado.Value ? "Pausa" : "Retomada")
+                    : "Atividade",
                 DataCriacao = DateTime.UtcNow,
-                // 🆕 Salvar progresso no momento
                 Progresso = existente.Progresso,
                 PaginaAtual = existente.PaginaAtual,
                 TotalPaginas = existente.TotalPaginas,
@@ -479,7 +486,6 @@ public class LivroService : ILivroService
                 TotalMinutos = existente.TotalMinutos
             };
             await _comentarioLivroRepository.AddAsync(atividade);
-            
         }
 
         return existente;
@@ -490,7 +496,7 @@ public class LivroService : ILivroService
     {
         var atividades = await _comentarioLivroRepository.FindAsync(c => 
             c.IdUsuario == usuarioId && 
-            c.Origem == "Atividade");
+            (c.Origem == "Atividade" || c.Origem == "Pausa" || c.Origem == "Retomada"));
 
         var livros = await _livroRepository.GetAllAsync();
 
@@ -500,11 +506,12 @@ public class LivroService : ILivroService
                 a.Id,
                 a.Comentario,
                 a.DataCriacao,
-                a.Progresso,        // 🆕 Progresso da atividade
-                a.PaginaAtual,       // 🆕
-                a.TotalPaginas,      // 🆕
-                a.MinutoAtual,       // 🆕
-                a.TotalMinutos,      // 🆕
+                a.Origem,
+                a.Progresso,
+                a.PaginaAtual,
+                a.TotalPaginas,
+                a.MinutoAtual,
+                a.TotalMinutos,
                 Livro = livros.FirstOrDefault(l => l.Id == a.IdLivro) is Livro livro ? new
                 {
                     livro.Id,
@@ -516,5 +523,29 @@ public class LivroService : ILivroService
             })
             .OrderByDescending(a => a.DataCriacao)
             .ToList<object>();
+    }
+
+    public async Task<object?> GetDetalhesInternoAsync(string id)
+    {
+        // 1. Buscar livro local
+        var livro = await _livroRepository.GetByIdAsync(id);
+        if (livro == null) return null;
+
+        // 2. Buscar livros com o MESMO título
+        var livrosMesmoTitulo = await _livroRepository.FindAsync(l => 
+            l.Titulo != null && l.Titulo == livro.Titulo);
+
+        // 3. Buscar avaliações
+        var avaliacoes = await _avaliacaoLivroRepository.FindAsync(a => a.IdLivro == id);
+
+        return new
+        {
+            AvaliacaoMedia = avaliacoes.Any() ? Math.Round(avaliacoes.Average(a => (int)a.Nota), 1) : 0,
+            TotalAvaliacoes = avaliacoes.Count(),
+            TotalNaBiblioteca = livrosMesmoTitulo.Count(),
+            TotalLendo = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lendo),
+            TotalLido = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lido),
+            TotalQueroLer = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.QueroLer)
+        };
     }
 }

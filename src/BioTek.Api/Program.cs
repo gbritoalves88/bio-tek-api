@@ -210,6 +210,14 @@ builder.Services.AddScoped<IRepository<NotificationSubscription>>(sp =>
     return new MongoRepository<NotificationSubscription>(context, "NotificationSubscriptions");
 });
 
+
+// JobExecution (controle de jobs em background)
+builder.Services.AddScoped<IRepository<JobExecution>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<JobExecution>(context, "JobExecutions");
+});
+
 // Firebase Settings
 builder.Services.Configure<FirebaseSettings>(options =>
 {

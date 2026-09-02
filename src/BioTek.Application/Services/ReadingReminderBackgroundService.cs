@@ -18,6 +18,11 @@ namespace BioTek.Application.Services
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ReadingReminderBackgroundService> _logger;
 
+        private static readonly TimeZoneInfo FusoBrasilia =
+            TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+
+        private const int HORA_ENVIO = 19; // 🆕 Enviar às 19h
+
         public ReadingReminderBackgroundService(
             IServiceProvider serviceProvider,
             ILogger<ReadingReminderBackgroundService> logger)
@@ -34,18 +39,56 @@ namespace BioTek.Application.Services
             {
                 try
                 {
-                    await CheckInactiveReadersAsync();
+                    var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
+                    var hoje = agoraBrasilia.Date;
+
+                    // 🆕 Verifica se já executou hoje (persistido no MongoDB)
+                    var jaExecutou = await JaExecutouHoje("ReadingReminder", hoje);
+
+                    // 🆕 Só envia se:
+                    // 1. Ainda não executou hoje
+                    // 2. Está no horário ou depois das 19h
+                    if (!jaExecutou && agoraBrasilia.Hour >= HORA_ENVIO)
+                    {
+                        await CheckInactiveReadersAsync();
+                        await RegistrarExecucao("ReadingReminder", hoje, agoraBrasilia);
+                        _logger.LogInformation($"Lembretes de leitura enviados e registrados em {agoraBrasilia}");
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Erro ao verificar leitores inativos");
                 }
 
-                // Aguardar 24 horas antes da próxima verificação
-                await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                // 🆕 Verificar a cada 1 hora (não 24 horas)
+                await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
             }
 
             _logger.LogInformation("ReadingReminderBackgroundService finalizado");
+        }
+
+        // 🆕 Verificar se já executou hoje
+        private async Task<bool> JaExecutouHoje(string jobName, DateTime data)
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
+            var execucoes = await repo.FindAsync(j =>
+                j.JobName == jobName &&
+                j.DataExecucao == data);
+            return execucoes.Any();
+        }
+
+        // 🆕 Registrar execução no MongoDB
+        private async Task RegistrarExecucao(string jobName, DateTime data, DateTime dataHora)
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
+            await repo.AddAsync(new JobExecution
+            {
+                JobName = jobName,
+                DataExecucao = data,
+                UltimaExecucao = dataHora
+            });
         }
 
         private async Task CheckInactiveReadersAsync()
@@ -58,10 +101,10 @@ namespace BioTek.Application.Services
             var firebaseService = scope.ServiceProvider.GetRequiredService<IFirebaseNotificationService>();
             var notificationRepository = scope.ServiceProvider.GetRequiredService<IRepository<NotificationSubscription>>();
 
-            var agora = DateTime.UtcNow;
-            var seteDias = agora.AddDays(-7);
+            var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
+            var seteDias = agoraBrasilia.AddDays(-7);
 
-            // 🆕 Buscar usuários COM streak ativo (para NÃO enviar)
+            // Buscar usuários COM streak ativo (para NÃO enviar)
             var streaksAtivos = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
             var usuariosComStreak = new HashSet<string>(streaksAtivos.Select(s => s.IdUsuario));
 
@@ -74,7 +117,6 @@ namespace BioTek.Application.Services
                 l.UltimaLeitura < seteDias &&
                 !usuariosComStreak.Contains(l.IdUsuario));
 
-            // 🆕 Agrupar por usuário e pegar 1 livro aleatório
             var lendoPorUsuario = lendoParados
                 .GroupBy(l => l.IdUsuario)
                 .Select(g => g.OrderBy(x => Guid.NewGuid()).First())
@@ -105,13 +147,12 @@ namespace BioTek.Application.Services
                 }
             }
 
-            // ============ 2. LIVROS "QUERO LER" HÁ 7 DIAS (NUNCA COMEÇOU) ============
+            // ============ 2. LIVROS "QUERO LER" HÁ 7 DIAS ============
             var queroLerParados = await livroRepository.FindAsync(l =>
                 l.Status == StatusLeitura.QueroLer &&
                 l.DataCriacao < seteDias &&
                 !usuariosComStreak.Contains(l.IdUsuario));
 
-            // 🆕 Agrupar por usuário e pegar 1 livro aleatório
             var queroLerPorUsuario = queroLerParados
                 .GroupBy(l => l.IdUsuario)
                 .Select(g => g.OrderBy(x => Guid.NewGuid()).First())

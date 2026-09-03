@@ -23,5 +23,5 @@ public class Usuario : BaseEntity
     public DateTime? UltimoAcesso { get; set; }      // 🆕
     public int TotalAcessos { get; set; } = 0; 
     public string? RefreshToken { get; set; }
-    public bool NotificacoesAtivas { get; set; } = false; 
+
 }

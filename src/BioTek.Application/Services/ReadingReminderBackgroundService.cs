@@ -21,7 +21,7 @@ namespace BioTek.Application.Services
         private static readonly TimeZoneInfo FusoBrasilia =
             TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
 
-        private const int HORA_ENVIO = 19; // 🆕 Enviar às 19h
+        private const int HORA_ENVIO = 19;
 
         public ReadingReminderBackgroundService(
             IServiceProvider serviceProvider,
@@ -42,16 +42,11 @@ namespace BioTek.Application.Services
                     var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
                     var hoje = agoraBrasilia.Date;
 
-                    // 🆕 Verifica se já executou hoje (persistido no MongoDB)
                     var jaExecutou = await JaExecutouHoje("ReadingReminder", hoje);
 
-                    // 🆕 Só envia se:
-                    // 1. Ainda não executou hoje
-                    // 2. Está no horário ou depois das 19h
                     if (!jaExecutou && agoraBrasilia.Hour >= HORA_ENVIO)
                     {
                         await CheckInactiveReadersAsync();
-                        await RegistrarExecucao("ReadingReminder", hoje, agoraBrasilia);
                         _logger.LogInformation($"Lembretes de leitura enviados e registrados em {agoraBrasilia}");
                     }
                 }
@@ -60,14 +55,12 @@ namespace BioTek.Application.Services
                     _logger.LogError(ex, "Erro ao verificar leitores inativos");
                 }
 
-                // 🆕 Verificar a cada 1 hora (não 24 horas)
                 await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
             }
 
             _logger.LogInformation("ReadingReminderBackgroundService finalizado");
         }
 
-        // 🆕 Verificar se já executou hoje
         private async Task<bool> JaExecutouHoje(string jobName, DateTime data)
         {
             using var scope = _serviceProvider.CreateScope();
@@ -78,8 +71,11 @@ namespace BioTek.Application.Services
             return execucoes.Any();
         }
 
-        // 🆕 Registrar execução no MongoDB
-        private async Task RegistrarExecucao(string jobName, DateTime data, DateTime dataHora)
+        private async Task RegistrarExecucao(
+            string jobName,
+            DateTime data,
+            DateTime dataHora,
+            List<UsuarioNotificado> usuarios)
         {
             using var scope = _serviceProvider.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
@@ -87,7 +83,8 @@ namespace BioTek.Application.Services
             {
                 JobName = jobName,
                 DataExecucao = data,
-                UltimaExecucao = dataHora
+                UltimaExecucao = dataHora,
+                UsuariosNotificados = usuarios
             });
         }
 
@@ -102,13 +99,15 @@ namespace BioTek.Application.Services
             var notificationRepository = scope.ServiceProvider.GetRequiredService<IRepository<NotificationSubscription>>();
 
             var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
+            var hoje = agoraBrasilia.Date;
             var seteDias = agoraBrasilia.AddDays(-7);
 
-            // Buscar usuários COM streak ativo (para NÃO enviar)
             var streaksAtivos = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
             var usuariosComStreak = new HashSet<string>(streaksAtivos.Select(s => s.IdUsuario));
 
             _logger.LogInformation($"Usuários com streak ativo: {usuariosComStreak.Count}");
+
+            var usuariosNotificados = new List<UsuarioNotificado>();
 
             // ============ 1. LIVROS "LENDO" PARADOS HÁ 7 DIAS ============
             var lendoParados = await livroRepository.FindAsync(l =>
@@ -128,7 +127,9 @@ namespace BioTek.Application.Services
             {
                 try
                 {
-                    _logger.LogInformation($"Enviando lembrete de leitura para {livro.IdUsuario} sobre '{livro.Titulo}'");
+                    var usuario = await usuarioRepository.GetByIdAsync(livro.IdUsuario);
+                    if (usuario == null || !usuario.Ativo)
+                        continue;
 
                     var sucesso = await firebaseService.SendReadingReminderAsync(
                         livro.IdUsuario,
@@ -137,9 +138,15 @@ namespace BioTek.Application.Services
                     );
 
                     if (sucesso)
-                        _logger.LogInformation($"Lembrete enviado para {livro.IdUsuario}");
-                    else
-                        _logger.LogWarning($"Falha ao enviar lembrete para {livro.IdUsuario}");
+                    {
+                        usuariosNotificados.Add(new UsuarioNotificado
+                        {
+                            Id = usuario.Id,
+                            Nickname = usuario.Nickname,
+                            Nome = usuario.Nome
+                        });
+                        _logger.LogInformation($"Lembrete de leitura enviado para {usuario.Nickname}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -176,8 +183,6 @@ namespace BioTek.Application.Services
                     if (tokens.Count == 0)
                         continue;
 
-                    _logger.LogInformation($"Enviando 'Comece a ler' para {livro.IdUsuario} sobre '{livro.Titulo}'");
-
                     await firebaseService.SendMulticastAsync(
                         tokens,
                         "📚 Comece sua leitura!",
@@ -189,6 +194,13 @@ namespace BioTek.Application.Services
                             { "bookId", livro.Id }
                         }
                     );
+
+                    usuariosNotificados.Add(new UsuarioNotificado
+                    {
+                        Id = usuario.Id,
+                        Nickname = usuario.Nickname,
+                        Nome = usuario.Nome
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -218,8 +230,6 @@ namespace BioTek.Application.Services
                     if (tokens.Count == 0)
                         continue;
 
-                    _logger.LogInformation($"Enviando 'Adicione um livro' para {usuario.Id}");
-
                     await firebaseService.SendMulticastAsync(
                         tokens,
                         "📕 Que tal começar?",
@@ -230,12 +240,22 @@ namespace BioTek.Application.Services
                             { "type", "add_book" }
                         }
                     );
+
+                    usuariosNotificados.Add(new UsuarioNotificado
+                    {
+                        Id = usuario.Id,
+                        Nickname = usuario.Nickname,
+                        Nome = usuario.Nome
+                    });
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Erro ao enviar 'Adicione um livro' para {usuario.Id}");
                 }
             }
+
+            // 🆕 Registra execução com os usuários notificados
+            await RegistrarExecucao("ReadingReminder", hoje, agoraBrasilia, usuariosNotificados);
         }
     }
 }

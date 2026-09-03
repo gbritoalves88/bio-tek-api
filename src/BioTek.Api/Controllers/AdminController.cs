@@ -21,6 +21,13 @@ public class AdminController : ControllerBase
     private readonly IRepository<Notificacao> _notificacaoRepository;
     private readonly IRepository<Acesso> _acessoRepository;
 
+    // 🆕 Emails para ignorar nas estatísticas (admins/testes)
+    private static readonly string[] EmailsIgnorados = new[]
+    {
+        "g.britoalves888@gmail.com",
+        "xxxbielxxx@gmail.com"
+    };
+
     public AdminController(
         IRepository<ComentarioLivro> comentarioRepository,
         IRepository<Usuario> usuarioRepository,
@@ -51,16 +58,30 @@ public class AdminController : ControllerBase
         return usuario?.Adm == true;
     }
 
+    // 🆕 Obter IDs dos usuários ignorados
+    private async Task<HashSet<string>> GetIdsIgnorados()
+    {
+        var usuarios = await _usuarioRepository.GetAllAsync();
+        return usuarios
+            .Where(u => EmailsIgnorados.Contains(u.Email))
+            .Select(u => u.Id)
+            .ToHashSet();
+    }
+
     // ===== DASHBOARD =====
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboard([FromQuery] DateTime? dataInicio = null, [FromQuery] DateTime? dataFim = null)
     {
         if (!await IsAdmin()) return Forbid();
 
-        var usuarios = await _usuarioRepository.GetAllAsync();
+        var idsIgnorados = await GetIdsIgnorados(); // 🆕
+
+        var usuarios = (await _usuarioRepository.GetAllAsync())
+            .Where(u => !idsIgnorados.Contains(u.Id)); // 🆕 Filtra admins
         var comentarios = await _comentarioRepository.GetAllAsync();
         var livros = await _livroRepository.GetAllAsync();
-        var acessos = await _acessoRepository.GetAllAsync();
+        var acessos = (await _acessoRepository.GetAllAsync())
+            .Where(a => !idsIgnorados.Contains(a.IdUsuario)); // 🆕 Filtra acessos dos admins
 
         if (dataInicio.HasValue)
         {
@@ -103,7 +124,7 @@ public class AdminController : ControllerBase
         [FromQuery] int pagina = 1, 
         [FromQuery] int limite = 20,
         [FromQuery] string? ordenar = null,
-        [FromQuery] string? status = null)  // "ativos" | "desativados" | "inativos30d" | null
+        [FromQuery] string? status = null)
     {
         if (!await IsAdmin()) return Forbid();
 
@@ -113,7 +134,6 @@ public class AdminController : ControllerBase
         var agora = DateTime.UtcNow;
         var trintaDias = agora.AddDays(-30);
 
-        // 🆕 FILTRO POR STATUS
         switch (status)
         {
             case "ativos":
@@ -127,7 +147,6 @@ public class AdminController : ControllerBase
                 break;
         }
 
-        // 🆕 ORDENAÇÃO
         switch (ordenar)
         {
             case "recentes":
@@ -190,8 +209,7 @@ public class AdminController : ControllerBase
             usuario.MediaAvaliacoes,
             usuario.AceitouTermos,
             usuario.TotalAcessos,
-            usuario.UltimoAcesso,
-            usuario.NotificacoesAtivas
+            usuario.UltimoAcesso
         });
     }
 
@@ -349,15 +367,19 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
-        var usuarios = await _usuarioRepository.GetAllAsync();
+        var idsIgnorados = await GetIdsIgnorados(); // 🆕
+
+        var usuarios = (await _usuarioRepository.GetAllAsync())
+            .Where(u => !idsIgnorados.Contains(u.Id)); // 🆕 Filtra admins
         var livros = await _livroRepository.GetAllAsync();
-        var acessos = await _acessoRepository.GetAllAsync();
+        var acessos = (await _acessoRepository.GetAllAsync())
+            .Where(a => !idsIgnorados.Contains(a.IdUsuario)); // 🆕 Filtra acessos dos admins
         var comentarios = await _comentarioRepository.GetAllAsync();
         var agora = DateTime.UtcNow;
         var trintaDias = agora.AddDays(-30);
 
         var sb = new StringBuilder();
-        sb.AppendLine("Nome,Nickname,Email,Admin,Ativo,Cadastro,Último Acesso,Total Acessos,Acessos 30d,Livros,Livros Lidos,Aceitou Termos,Notificações Ativas");
+        sb.AppendLine("Nome,Nickname,Email,Admin,Ativo,Cadastro,Último Acesso,Total Acessos,Acessos 30d,Livros,Livros Lidos,Aceitou Termos");
 
         foreach (var u in usuarios.OrderByDescending(u => u.TotalAcessos))
         {
@@ -367,7 +389,7 @@ public class AdminController : ControllerBase
             var acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias);
             var ultimoAcesso = u.UltimoAcesso.HasValue ? u.UltimoAcesso.Value.ToString("yyyy-MM-dd HH:mm") : "Nunca";
 
-            sb.AppendLine($"{EscapeCsv(u.Nome)},{EscapeCsv(u.Nickname)},{u.Email},{u.Adm},{u.Ativo},{u.DataCriacao:yyyy-MM-dd HH:mm},{ultimoAcesso},{u.TotalAcessos},{acessos30Dias},{totalLivros},{livrosLidos},{u.AceitouTermos},{u.NotificacoesAtivas}");
+            sb.AppendLine($"{EscapeCsv(u.Nome)},{EscapeCsv(u.Nickname)},{u.Email},{u.Adm},{u.Ativo},{u.DataCriacao:yyyy-MM-dd HH:mm},{ultimoAcesso},{u.TotalAcessos},{acessos30Dias},{totalLivros},{livrosLidos},{u.AceitouTermos}");
         }
 
         sb.AppendLine();
@@ -392,7 +414,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("health")]
-    [HttpHead("health")] // 🆕 ACEITA HEAD
+    [HttpHead("health")]
     [AllowAnonymous]
     public IActionResult Get()
     {

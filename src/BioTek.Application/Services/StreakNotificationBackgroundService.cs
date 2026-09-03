@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +20,7 @@ public class StreakNotificationBackgroundService : BackgroundService
     private static readonly TimeZoneInfo FusoBrasilia =
         TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
 
-    private const int HORA_ENVIO = 18; // 🆕 Enviar às 18h
+    private const int HORA_ENVIO = 18;
 
     public StreakNotificationBackgroundService(
         IServiceProvider serviceProvider,
@@ -40,16 +41,11 @@ public class StreakNotificationBackgroundService : BackgroundService
                 var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
                 var hoje = agoraBrasilia.Date;
 
-                // 🆕 Verifica se já executou hoje (persistido no MongoDB)
                 var jaExecutou = await JaExecutouHoje("StreakNotification", hoje);
 
-                // 🆕 Só envia se:
-                // 1. Ainda não executou hoje
-                // 2. Está no horário ou depois das 18h
                 if (!jaExecutou && agoraBrasilia.Hour >= HORA_ENVIO)
                 {
                     await EnviarLembretesStreak();
-                    await RegistrarExecucao("StreakNotification", hoje, agoraBrasilia);
                     _logger.LogInformation($"Lembretes de streak enviados e registrados em {agoraBrasilia}");
                 }
             }
@@ -58,14 +54,12 @@ public class StreakNotificationBackgroundService : BackgroundService
                 _logger.LogError(ex, "Erro ao verificar streaks para notificação");
             }
 
-            // 🆕 Verificar a cada 1 hora (não 30 minutos)
             await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
         }
 
         _logger.LogInformation("StreakNotificationBackgroundService finalizado");
     }
 
-    // 🆕 Verificar se já executou hoje
     private async Task<bool> JaExecutouHoje(string jobName, DateTime data)
     {
         using var scope = _serviceProvider.CreateScope();
@@ -76,8 +70,11 @@ public class StreakNotificationBackgroundService : BackgroundService
         return execucoes.Any();
     }
 
-    // 🆕 Registrar execução no MongoDB
-    private async Task RegistrarExecucao(string jobName, DateTime data, DateTime dataHora)
+    private async Task RegistrarExecucao(
+        string jobName,
+        DateTime data,
+        DateTime dataHora,
+        List<UsuarioNotificado> usuarios)
     {
         using var scope = _serviceProvider.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
@@ -85,7 +82,8 @@ public class StreakNotificationBackgroundService : BackgroundService
         {
             JobName = jobName,
             DataExecucao = data,
-            UltimaExecucao = dataHora
+            UltimaExecucao = dataHora,
+            UsuariosNotificados = usuarios
         });
     }
 
@@ -103,28 +101,25 @@ public class StreakNotificationBackgroundService : BackgroundService
 
         _logger.LogInformation("Verificando streaks para lembrete...");
 
-        // Buscar todos os streaks ativos
         var streaks = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
         _logger.LogInformation($"Total de streaks ativos encontrados: {streaks.Count()}");
 
         var enviados = 0;
+        var usuariosNotificados = new List<UsuarioNotificado>();
 
         foreach (var streak in streaks)
         {
             try
             {
-                // Pular se já leu hoje
                 if (streak.UltimaDataAtividade?.Date == hoje)
                 {
                     continue;
                 }
 
-                // Verificar se o usuário está ativo
                 var usuario = await usuarioRepository.GetByIdAsync(streak.IdUsuario);
                 if (usuario == null || !usuario.Ativo)
                     continue;
 
-                // Buscar tokens de notificação ativos
                 var subscriptions = await notificacaoRepository.FindAsync(s =>
                     s.UserId == streak.IdUsuario && s.IsActive);
 
@@ -133,7 +128,6 @@ public class StreakNotificationBackgroundService : BackgroundService
                 if (tokens.Count == 0)
                     continue;
 
-                // Montar mensagem
                 var titulo = "🔥 Continue sua sequência!";
                 var corpo = $"Sua sequência está em {streak.SequenciaAtual} dias. Leia um pouco hoje para continuar seu hábito.";
                 var url = "/inicio";
@@ -145,17 +139,27 @@ public class StreakNotificationBackgroundService : BackgroundService
                     { "userId", streak.IdUsuario }
                 };
 
-                // Enviar para todos os dispositivos do usuário
                 await firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
                 enviados++;
 
-                _logger.LogInformation($"Lembrete de streak enviado para usuário {streak.IdUsuario} (streak: {streak.SequenciaAtual})");
+                // 🆕 Adiciona informações do usuário
+                usuariosNotificados.Add(new UsuarioNotificado
+                {
+                    Id = usuario.Id,
+                    Nickname = usuario.Nickname,
+                    Nome = usuario.Nome
+                });
+
+                _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Erro ao enviar lembrete de streak para {streak.IdUsuario}");
             }
         }
+
+        // 🆕 Registra execução com os usuários notificados
+        await RegistrarExecucao("StreakNotification", hoje, agoraBrasilia, usuariosNotificados);
 
         _logger.LogInformation($"Total de lembretes de streak enviados: {enviados}");
     }

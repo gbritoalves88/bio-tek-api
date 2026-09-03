@@ -71,11 +71,10 @@ namespace BioTek.Application.Services
             return execucoes.Any();
         }
 
-        private async Task RegistrarExecucao(
+       private async Task RegistrarExecucao(
             string jobName,
             DateTime data,
-            DateTime dataHora,
-            List<UsuarioNotificado> usuarios)
+            DateTime dataHora)
         {
             using var scope = _serviceProvider.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
@@ -83,12 +82,11 @@ namespace BioTek.Application.Services
             {
                 JobName = jobName,
                 DataExecucao = data,
-                UltimaExecucao = dataHora,
-                UsuariosNotificados = usuarios
+                UltimaExecucao = dataHora
             });
         }
 
-        private async Task CheckInactiveReadersAsync()
+       private async Task CheckInactiveReadersAsync()
         {
             using var scope = _serviceProvider.CreateScope();
 
@@ -102,12 +100,13 @@ namespace BioTek.Application.Services
             var hoje = agoraBrasilia.Date;
             var seteDias = agoraBrasilia.AddDays(-7);
 
+            // Buscar usuários COM streak ativo (para NÃO enviar)
             var streaksAtivos = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
             var usuariosComStreak = new HashSet<string>(streaksAtivos.Select(s => s.IdUsuario));
 
             _logger.LogInformation($"Usuários com streak ativo: {usuariosComStreak.Count}");
 
-            var usuariosNotificados = new List<UsuarioNotificado>();
+            var enviados = 0; // 🆕 Contador simples
 
             // ============ 1. LIVROS "LENDO" PARADOS HÁ 7 DIAS ============
             var lendoParados = await livroRepository.FindAsync(l =>
@@ -127,9 +126,7 @@ namespace BioTek.Application.Services
             {
                 try
                 {
-                    var usuario = await usuarioRepository.GetByIdAsync(livro.IdUsuario);
-                    if (usuario == null || !usuario.Ativo)
-                        continue;
+                    _logger.LogInformation($"Enviando lembrete de leitura para {livro.IdUsuario} sobre '{livro.Titulo}'");
 
                     var sucesso = await firebaseService.SendReadingReminderAsync(
                         livro.IdUsuario,
@@ -139,13 +136,12 @@ namespace BioTek.Application.Services
 
                     if (sucesso)
                     {
-                        usuariosNotificados.Add(new UsuarioNotificado
-                        {
-                            Id = usuario.Id,
-                            Nickname = usuario.Nickname,
-                            Nome = usuario.Nome
-                        });
-                        _logger.LogInformation($"Lembrete de leitura enviado para {usuario.Nickname}");
+                        enviados++; // 🆕
+                        _logger.LogInformation($"Lembrete enviado para {livro.IdUsuario}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"Falha ao enviar lembrete para {livro.IdUsuario}");
                     }
                 }
                 catch (Exception ex)
@@ -183,6 +179,8 @@ namespace BioTek.Application.Services
                     if (tokens.Count == 0)
                         continue;
 
+                    _logger.LogInformation($"Enviando 'Comece a ler' para {livro.IdUsuario} sobre '{livro.Titulo}'");
+
                     await firebaseService.SendMulticastAsync(
                         tokens,
                         "📚 Comece sua leitura!",
@@ -195,12 +193,7 @@ namespace BioTek.Application.Services
                         }
                     );
 
-                    usuariosNotificados.Add(new UsuarioNotificado
-                    {
-                        Id = usuario.Id,
-                        Nickname = usuario.Nickname,
-                        Nome = usuario.Nome
-                    });
+                    enviados++; // 🆕
                 }
                 catch (Exception ex)
                 {
@@ -230,6 +223,8 @@ namespace BioTek.Application.Services
                     if (tokens.Count == 0)
                         continue;
 
+                    _logger.LogInformation($"Enviando 'Adicione um livro' para {usuario.Id}");
+
                     await firebaseService.SendMulticastAsync(
                         tokens,
                         "📕 Que tal começar?",
@@ -241,12 +236,7 @@ namespace BioTek.Application.Services
                         }
                     );
 
-                    usuariosNotificados.Add(new UsuarioNotificado
-                    {
-                        Id = usuario.Id,
-                        Nickname = usuario.Nickname,
-                        Nome = usuario.Nome
-                    });
+                    enviados++; // 🆕
                 }
                 catch (Exception ex)
                 {
@@ -254,8 +244,10 @@ namespace BioTek.Application.Services
                 }
             }
 
-            // 🆕 Registra execução com os usuários notificados
-            await RegistrarExecucao("ReadingReminder", hoje, agoraBrasilia, usuariosNotificados);
+            // 🆕 Registra apenas a execução (sem lista de usuários)
+            await RegistrarExecucao("ReadingReminder", hoje, agoraBrasilia);
+
+            _logger.LogInformation($"Total de lembretes de leitura enviados: {enviados}");
         }
     }
 }

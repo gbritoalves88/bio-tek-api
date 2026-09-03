@@ -73,8 +73,7 @@ public class StreakNotificationBackgroundService : BackgroundService
     private async Task RegistrarExecucao(
         string jobName,
         DateTime data,
-        DateTime dataHora,
-        List<UsuarioNotificado> usuarios)
+        DateTime dataHora)
     {
         using var scope = _serviceProvider.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRepository<JobExecution>>();
@@ -82,8 +81,7 @@ public class StreakNotificationBackgroundService : BackgroundService
         {
             JobName = jobName,
             DataExecucao = data,
-            UltimaExecucao = dataHora,
-            UsuariosNotificados = usuarios
+            UltimaExecucao = dataHora
         });
     }
 
@@ -105,7 +103,6 @@ public class StreakNotificationBackgroundService : BackgroundService
         _logger.LogInformation($"Total de streaks ativos encontrados: {streaks.Count()}");
 
         var enviados = 0;
-        var usuariosNotificados = new List<UsuarioNotificado>();
 
         foreach (var streak in streaks)
         {
@@ -142,14 +139,6 @@ public class StreakNotificationBackgroundService : BackgroundService
                 await firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
                 enviados++;
 
-                // 🆕 Adiciona informações do usuário
-                usuariosNotificados.Add(new UsuarioNotificado
-                {
-                    Id = usuario.Id,
-                    Nickname = usuario.Nickname,
-                    Nome = usuario.Nome
-                });
-
                 _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
             }
             catch (Exception ex)
@@ -158,8 +147,8 @@ public class StreakNotificationBackgroundService : BackgroundService
             }
         }
 
-        // 🆕 Registra execução com os usuários notificados
-        await RegistrarExecucao("StreakNotification", hoje, agoraBrasilia, usuariosNotificados);
+        // 🆕 Registra apenas a execução (sem lista de usuários)
+        await RegistrarExecucao("StreakNotification", hoje, agoraBrasilia);
 
         _logger.LogInformation($"Total de lembretes de streak enviados: {enviados}");
     }

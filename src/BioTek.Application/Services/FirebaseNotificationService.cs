@@ -193,7 +193,7 @@ namespace BioTek.Services
             }
         }
 
-        // 🆕 Enviar para múltiplos tokens (multicast REAL)
+       // Enviar para múltiplos tokens (paralelo)
         public async Task<bool> SendMulticastAsync(
             List<string> tokens,
             string title,
@@ -205,32 +205,15 @@ namespace BioTek.Services
                 return false;
 
             var sucesso = true;
-
-            // 🆕 Divide em lotes de 500 tokens
-            var lotes = tokens
-                .Where(t => !string.IsNullOrEmpty(t))
-                .Distinct()
-                .Chunk(MAX_TOKENS_POR_LOTE)
-                .ToList();
-
-            _logger.LogInformation($"Enviando multicast para {tokens.Count} tokens em {lotes.Count} lote(s)");
-
-            foreach (var lote in lotes)
-            {
-                try
-                {
-                    var acesso = await EnviarLoteMulticastAsync(lote.ToList(), title, body, url, data);
-                    if (!acesso)
-                        sucesso = false;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Erro ao enviar lote de {lote.Length} tokens");
-                    sucesso = false;
-                }
-            }
-
-            return sucesso;
+            
+            // Enviar em paralelo
+            var tarefas = tokens.Select(token => 
+                SendNotificationAsync(token, title, body, url, data)
+            ).ToArray();
+            
+            var resultados = await Task.WhenAll(tarefas);
+            
+            return resultados.All(r => r);
         }
 
         // 🆕 Enviar lote usando multicast real do Firebase

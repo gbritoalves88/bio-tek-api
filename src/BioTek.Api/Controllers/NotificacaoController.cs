@@ -311,7 +311,7 @@ public class NotificacaoController : ControllerBase
             if (usuario == null)
                 return NotFound(new { message = "Usuário não encontrado" });
             
-            usuario.NotificacoesAtivas = request.Aceitou;
+            
             await _usuarioService.AtualizarAsync(usuario.Id, usuario);
             
             return Ok(new { success = true });

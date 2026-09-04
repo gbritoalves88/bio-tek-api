@@ -190,5 +190,50 @@ public class NotificacaoService : INotificacaoService
         return subscriptions.ToList();
     }
 
+    // 🆕 Notificação de incentivo (streak, leitura, incentivo)
+    public async Task CriarNotificacaoIncentivo(string idUsuario, string tipo, string mensagem)
+    {
+        var notificacao = new Notificacao
+        {
+            Id = Guid.NewGuid().ToString(),
+            IdUsuario = idUsuario,
+            Tipo = tipo,
+            Mensagem = mensagem,
+            DataCriacao = DateTime.UtcNow,
+            Lida = false
+        };
+        await _notificacaoRepository.AddAsync(notificacao);
+    }
+
+    // 🆕 Notificação de streak
+    public async Task CriarNotificacaoStreak(string idUsuario, int streakAtual)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "streak",
+            $"🔥 Sua sequência está em {streakAtual} dias! Continue lendo hoje!"
+        );
+    }
+
+    // 🆕 Notificação de leitura parada
+    public async Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "leitura",
+            $"📚 Você está há {diasParado} dias sem ler '{tituloLivro}'. Continue de onde parou!"
+        );
+    }
+
+    // 🆕 Notificação de incentivo inicial
+    public async Task CriarNotificacaoIncentivoInicial(string idUsuario)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "incentivo",
+            "📕 Adicione seu primeiro livro e comece sua jornada literária!"
+        );
+    }
+
     
 }

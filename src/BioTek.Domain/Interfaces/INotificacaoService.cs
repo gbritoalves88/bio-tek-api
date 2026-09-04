@@ -17,4 +17,9 @@ public interface INotificacaoService
     Task<bool> UnsubscribeAsync(UnsubscribeRequest request);
     Task<List<NotificationSubscription>> GetUserSubscriptionsAsync(string userId);
 
+    Task CriarNotificacaoIncentivo(string idUsuario, string tipo, string mensagem);
+    Task CriarNotificacaoStreak(string idUsuario, int streakAtual);
+    Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado);
+    Task CriarNotificacaoIncentivoInicial(string idUsuario);
+
 }

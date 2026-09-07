@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using BioTek.Api.Models;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -357,5 +358,37 @@ public class CatalogoController : ControllerBase
     {
         var resultado = await _catalogoService.ImportarPorAssuntoOpenLibraryAsync(assunto, limite, maxPaginas);
         return Ok(resultado);
+    }
+
+    [HttpGet("mais-adicionados")]
+    public async Task<IActionResult> GetMaisAdicionados([FromQuery] int limite = 10)
+    {
+        var livros = await _catalogoService.GetMaisAdicionadosAsync(limite);
+        return Ok(livros);
+    }
+
+
+    [HttpGet("biblioteca-inicial")]
+    public async Task<IActionResult> GetBibliotecaInicial()
+    {
+        var usuarioId = GetUsuarioId();
+        var dados = await _catalogoService.GetBibliotecaInicialAsync(usuarioId);
+        return Ok(dados);
+    }
+
+    [HttpPost("preferencias")]
+    public async Task<IActionResult> SalvarPreferencias([FromBody] PreferenciasRequest request)
+    {
+        var usuarioId = GetUsuarioId();
+        
+        try
+        {
+            var resultado = await _catalogoService.SalvarPreferenciasAsync(usuarioId, request.Generos);
+            return Ok(new { success = true, generosPreferidos = resultado });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { mensagem = ex.Message });
+        }
     }
 }

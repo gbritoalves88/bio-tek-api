@@ -527,25 +527,47 @@ public class LivroService : ILivroService
 
     public async Task<object?> GetDetalhesInternoAsync(string id)
     {
-        // 1. Buscar livro local
+        // 🆕 1. Buscar primeiro no Catálogo
+        var catalogo = await _catalogoRepository.GetByIdAsync(id);
+        if (catalogo != null)
+        {
+            // Buscar livros com o MESMO título na biblioteca pessoal
+            var livrosMesmoTitulo = await _livroRepository.FindAsync(l => 
+                l.Titulo != null && l.Titulo == catalogo.Titulo);
+
+            // Buscar avaliações
+            var avaliacoesCatalogo = await _avaliacaoLivroRepository.FindAsync(a => a.IdLivro == id);
+
+            return new
+            {
+                AvaliacaoMedia = avaliacoesCatalogo.Any() ? Math.Round(avaliacoesCatalogo.Average(a => (int)a.Nota), 1) : 0,
+                TotalAvaliacoes = avaliacoesCatalogo.Count(),
+                TotalNaBiblioteca = livrosMesmoTitulo.Count(),
+                TotalLendo = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lendo),
+                TotalLido = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lido),
+                TotalQueroLer = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.QueroLer)
+            };
+        }
+
+        // 🆕 2. Se não achou no catálogo, busca na biblioteca pessoal
         var livro = await _livroRepository.GetByIdAsync(id);
         if (livro == null) return null;
 
-        // 2. Buscar livros com o MESMO título
-        var livrosMesmoTitulo = await _livroRepository.FindAsync(l => 
+        // Buscar livros com o MESMO título
+        var livrosMesmoTituloLocal = await _livroRepository.FindAsync(l => 
             l.Titulo != null && l.Titulo == livro.Titulo);
 
-        // 3. Buscar avaliações
+        // Buscar avaliações
         var avaliacoes = await _avaliacaoLivroRepository.FindAsync(a => a.IdLivro == id);
 
         return new
         {
             AvaliacaoMedia = avaliacoes.Any() ? Math.Round(avaliacoes.Average(a => (int)a.Nota), 1) : 0,
             TotalAvaliacoes = avaliacoes.Count(),
-            TotalNaBiblioteca = livrosMesmoTitulo.Count(),
-            TotalLendo = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lendo),
-            TotalLido = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lido),
-            TotalQueroLer = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.QueroLer)
+            TotalNaBiblioteca = livrosMesmoTituloLocal.Count(),
+            TotalLendo = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.Lendo),
+            TotalLido = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.Lido),
+            TotalQueroLer = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.QueroLer)
         };
     }
 }

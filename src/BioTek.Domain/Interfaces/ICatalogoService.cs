@@ -36,6 +36,12 @@ public interface ICatalogoService
     Task<List<string>> GetGenerosMaisComunsAsync(int limite = 10);
 
     Task<ImportacaoResultado> ImportarPorAssuntoOpenLibraryAsync(string assunto, int limite, int maxPaginas);
+
+    Task<List<object>> GetMaisAdicionadosAsync(int limite = 10);
+
+    Task<object> GetBibliotecaInicialAsync(string usuarioId);
+
+    Task<List<string>> SalvarPreferenciasAsync(string usuarioId, List<string> generos);
 }
 
 public class ImportacaoResultado

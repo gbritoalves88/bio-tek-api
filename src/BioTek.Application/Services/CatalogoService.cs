@@ -895,7 +895,7 @@ public class CatalogoService : ICatalogoService
         
         return new
         {
-            Catalogo = catalogo.Take(20),
+            Catalogo = catalogo,
             MaisAdicionados = maisAdicionados,
             GenerosPreferidos = generosPreferidos, 
             Recomendados = recomendados,

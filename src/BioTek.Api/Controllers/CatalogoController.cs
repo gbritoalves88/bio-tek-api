@@ -4,6 +4,7 @@ using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
@@ -18,15 +19,23 @@ public class CatalogoController : ControllerBase
         _catalogoService = catalogoService;
     }
 
+    // 🆕 GetUsuarioId melhorado
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
     /// <summary>
     /// Lista todos os livros do catálogo
     /// </summary>
     [HttpGet]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAll()
     {
         var catalogos = await _catalogoService.GetAllAsync();
@@ -37,6 +46,7 @@ public class CatalogoController : ControllerBase
     /// Obtém um livro do catálogo por ID
     /// </summary>
     [HttpGet("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetById(string id)
     {
         var catalogo = await _catalogoService.GetByIdAsync(id);
@@ -49,6 +59,7 @@ public class CatalogoController : ControllerBase
     /// Busca livros no catálogo por termo
     /// </summary>
     [HttpGet("buscar")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Search([FromQuery] string q)
     {
         if (string.IsNullOrWhiteSpace(q))
@@ -62,6 +73,7 @@ public class CatalogoController : ControllerBase
     /// Busca livros por gênero
     /// </summary>
     [HttpGet("genero/{genero}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> SearchByGenero(string genero)
     {
         var resultados = await _catalogoService.SearchByGeneroAsync(genero);
@@ -72,6 +84,7 @@ public class CatalogoController : ControllerBase
     /// Busca livros recentes
     /// </summary>
     [HttpGet("recentes")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetRecentes([FromQuery] int limite = 20)
     {
         var resultados = await _catalogoService.GetMaisRecentesAsync(limite);
@@ -79,9 +92,10 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Busca livro por ISBN (busca local + APIs externas)
+    /// Busca livro por ISBN
     /// </summary>
     [HttpGet("isbn/{isbn}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> BuscarPorIsbn(string isbn)
     {
         var catalogo = await _catalogoService.BuscarPorIsbnAsync(isbn);
@@ -92,9 +106,10 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Busca livros externos por texto (sem salvar no catálogo)
+    /// Busca livros externos por texto
     /// </summary>
     [HttpGet("buscar-externo")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> BuscarExterno([FromQuery] string q, [FromQuery] int limite = 20)
     {
         if (string.IsNullOrWhiteSpace(q))
@@ -104,10 +119,14 @@ public class CatalogoController : ControllerBase
         return Ok(resultados);
     }
 
+    // ========== IMPORTAÇÃO (APENAS ADMIN) ==========
+
     /// <summary>
-    /// Importa livros por termo de busca
+    /// Importa livros por termo de busca (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/termo/{termo}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarPorTermo(string termo, [FromQuery] int limite = 50)
     {
         var resultado = await _catalogoService.ImportarPorTermoAsync(termo, limite);
@@ -115,9 +134,11 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importa livros por lista de ISBNs
+    /// Importa livros por lista de ISBNs (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/isbns")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarPorIsbns([FromBody] List<string> isbns)
     {
         var resultado = await _catalogoService.ImportarPorIsbnsAsync(isbns);
@@ -125,9 +146,11 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importa livros populares por categoria
+    /// Importa livros populares por categoria (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/populares/{categoria}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarPopulares(string categoria, [FromQuery] int limite = 50)
     {
         var resultado = await _catalogoService.ImportarPopularesAsync(categoria, limite);
@@ -135,61 +158,23 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importa livros automaticamente (máximo possível)
+    /// Importa livros automaticamente (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/tudo")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarTudo()
     {
-        var termos = new List<string>
-        {
-            "best sellers", "classic literature", "fantasy books", "science fiction",
-            "romance novels", "thriller books", "mystery books", "biography books",
-            "history books", "self help books", "children books", "young adult",
-            "horror books", "poetry books", "philosophy books", "psychology books",
-            "business books", "cooking books", "art books", "travel books",
-            "harry potter", "stephen king", "machado de assis", "jorge amado",
-            "agatha christie", "george orwell", "jane austen", "charles dickens",
-            "game of thrones", "lord of the rings", "the witcher", "dune"
-        };
-        
-        var importados = 0;
-        var existentes = 0;
-        var erros = 0;
-        var resultadosPorTermo = new List<object>();
-        
-        foreach (var termo in termos)
-        {
-            try
-            {
-                var resultado = await _catalogoService.ImportarPorTermoAsync(termo, 30);
-                importados += resultado.Importados;
-                existentes += resultado.JaExistentes;
-                resultadosPorTermo.Add(new { termo, resultado.Importados, resultado.JaExistentes });
-                
-                await Task.Delay(300);
-            }
-            catch (Exception ex)
-            {
-                erros++;
-                resultadosPorTermo.Add(new { termo, Erro = ex.Message });
-            }
-        }
-        
-        return Ok(new
-        {
-            Mensagem = "Importação concluída",
-            TotalTermos = termos.Count,
-            LivrosImportados = importados,
-            LivrosJaExistentes = existentes,
-            Erros = erros,
-            Detalhes = resultadosPorTermo
-        });
+        var resultado = await _catalogoService.ImportarRobustoAsync("tudo", 40, 3);
+        return Ok(resultado);
     }
 
     /// <summary>
-    /// Adiciona um livro do catálogo à biblioteca pessoal
+    /// Adiciona livro do catálogo à biblioteca pessoal
     /// </summary>
+    [Authorize]
     [HttpPost("{id}/adicionar-biblioteca")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> AdicionarBiblioteca(string id, [FromQuery] int? status = null)
     {
         var usuarioId = GetUsuarioId();
@@ -206,114 +191,22 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importa livros em massa (máximo possível)
+    /// Importa livros em massa (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/massa")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarMassa([FromQuery] int limitePorTermo = 100)
     {
-        var termos = new List<string>
-        {
-            // Literatura brasileira
-            "machado de assis", "jorge amado", "graciliano ramos", "clarice lispector",
-            "guimaraes rosa", "cecilia meireles", "monteiro lobato", "carlos drummond",
-            
-            // Literatura internacional clássica
-            "dom quixote", "guerra e paz", "crime e castigo", "cem anos solidão",
-            "cemiterio praga", "o nome da rosa", "momo", "o pequeno principe",
-            
-            // Fantasia e Ficção
-            "harry potter", "game of thrones", "o senhor dos aneis", "as cronicas de narnia",
-            "a roda do tempo", "the witcher", "percy jackson", "eragon",
-            
-            // Suspense e Terror
-            "stephen king", "agatha christie", "lovecraft", "edgar allan poe",
-            "dan brown", "john grisham", "arthur conan doyle", "sherlock holmes",
-            
-            // Ficção Científica
-            "isaac asimov", "philip k dick", "arthur c clarke", "ray bradbury",
-            "orwell 1984", "fahrenheit 451", "admirável mundo novo", "fundação",
-            
-            // Romance
-            "jane austen", "emily bronte", "nicholas sparks", "jojo moyes",
-            "orgulho e preconceito", "o morro dos ventos uivantes",
-            
-            // Autoajuda e Desenvolvimento
-            "como fazer amigos", "o poder do habito", "mindset", "habitos atomicos",
-            "mais esperto que o diabo", "a sutil arte de ligar o foda-se",
-            
-            // Negócios e Empreendedorismo
-            "pai rico pai pobre", "o segredo da mente milionaria", "empreendedorismo",
-            "startup", "marketing digital", "lideranca",
-            
-            // Saúde e Bem-estar
-            "medicina", "nutricao", "fitness", "yoga", "meditacao",
-            
-            // Infantojuvenil
-            "turma da monica", "sítio do picapau amarelo", "diario de um banana",
-            "percy jackson", "harry potter infantil",
-            
-            // HQs e Mangás
-            "batman", "superman", "spider man", "x men", "avengers",
-            "naruto", "one piece", "dragon ball", "death note",
-            
-            // Tecnologia
-            "javascript", "python", "java", "c sharp", "angular", "react",
-            "machine learning", "inteligencia artificial", "cyber security",
-            
-            // História e Política
-            "segunda guerra mundial", "brasil colonia", "revolucao francesa",
-            "guerra fria", "historia do brasil",
-            
-            // Religião e Espiritualidade
-            "biblia", "alcorao", "bhagavad gita", "budismo", "espiritismo"
-        };
-        
-        var todosResultados = new List<object>();
-        var totalImportados = 0;
-        var totalExistentes = 0;
-        
-        foreach (var termo in termos)
-        {
-            try
-            {
-                var resultado = await _catalogoService.ImportarPorTermoAsync(termo, limitePorTermo);
-                totalImportados += resultado.Importados;
-                totalExistentes += resultado.JaExistentes;
-                
-                todosResultados.Add(new
-                {
-                    Termo = termo,
-                    Importados = resultado.Importados,
-                    JaExistentes = resultado.JaExistentes,
-                    Total = resultado.Importados + resultado.JaExistentes
-                });
-                
-                // Aguarda 1 segundo entre requisições
-                await Task.Delay(1000);
-            }
-            catch (Exception ex)
-            {
-                todosResultados.Add(new { Termo = termo, Erro = ex.Message });
-            }
-        }
-        
-        var catalogoTotal = await _catalogoService.GetTotalCountAsync();
-        
-        return Ok(new
-        {
-            Mensagem = "Importação em massa concluída!",
-            TermosProcessados = termos.Count,
-            TotalImportadosNestaSessao = totalImportados,
-            TotalJaExistentesNestaSessao = totalExistentes,
-            TotalGeralNoCatalogo = catalogoTotal,
-            DetalhesPorTermo = todosResultados
-        });
+        var resultado = await _catalogoService.ImportarRobustoAsync("tudo", limitePorTermo, 1);
+        return Ok(resultado);
     }
 
     /// <summary>
     /// Estatísticas do catálogo
     /// </summary>
     [HttpGet("estatisticas")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetEstatisticas()
     {
         var total = await _catalogoService.GetTotalCountAsync();
@@ -327,9 +220,11 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importação robusta em massa (milhares de livros)
+    /// Importação robusta (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/robusto")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarRobusto([FromQuery] string? categoria = "tudo", [FromQuery] int livrosPorTermo = 40, [FromQuery] int paginasPorTermo = 3)
     {
         var resultado = await _catalogoService.ImportarRobustoAsync(categoria, livrosPorTermo, paginasPorTermo);
@@ -337,9 +232,11 @@ public class CatalogoController : ControllerBase
     }
 
     /// <summary>
-    /// Importa livros por letras do alfabeto (a-z) - Simplificado
+    /// Importa por letras (ADMIN)
     /// </summary>
+    [Authorize]
     [HttpPost("importar/letras")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarPorLetras([FromQuery] int livrosPorLetra = 40, [FromQuery] int atrasoMs = 500)
     {
         var resultado = await _catalogoService.ImportarPorLetrasAsync(livrosPorLetra, atrasoMs);
@@ -347,13 +244,16 @@ public class CatalogoController : ControllerBase
     }
 
     [HttpGet("categorias")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetCategorias()
     {
         var generos = await _catalogoService.GetGenerosMaisComunsAsync(20);
         return Ok(generos);
     }
 
+    [Authorize]
     [HttpPost("importar/assunto/{assunto}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ImportarPorAssunto(string assunto, [FromQuery] int limite = 200, [FromQuery] int maxPaginas = 5)
     {
         var resultado = await _catalogoService.ImportarPorAssuntoOpenLibraryAsync(assunto, limite, maxPaginas);
@@ -361,14 +261,16 @@ public class CatalogoController : ControllerBase
     }
 
     [HttpGet("mais-adicionados")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetMaisAdicionados([FromQuery] int limite = 10)
     {
         var livros = await _catalogoService.GetMaisAdicionadosAsync(limite);
         return Ok(livros);
     }
 
-
+    [Authorize]
     [HttpGet("biblioteca-inicial")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetBibliotecaInicial()
     {
         var usuarioId = GetUsuarioId();
@@ -376,7 +278,9 @@ public class CatalogoController : ControllerBase
         return Ok(dados);
     }
 
+    [Authorize]
     [HttpPost("preferencias")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> SalvarPreferencias([FromBody] PreferenciasRequest request)
     {
         var usuarioId = GetUsuarioId();

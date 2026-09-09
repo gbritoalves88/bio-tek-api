@@ -14,6 +14,11 @@ public class NotificacaoService : INotificacaoService
     private readonly IRepository<NotificationSubscription> _subscriptionRepository;
     private readonly ILogger<NotificacaoService> _logger;
 
+    // 🆕 Cache de notificações não lidas
+    private static readonly Dictionary<string, (List<Notificacao> Data, DateTime Time)> _cacheNaoLidas = new();
+    private static readonly object _cacheLock = new();
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
+
     public NotificacaoService(
         IRepository<Notificacao> notificacaoRepository,
         IRepository<Usuario> usuarioRepository,
@@ -30,29 +35,84 @@ public class NotificacaoService : INotificacaoService
 
     public async Task<List<Notificacao>> GetNaoLidasAsync(string usuarioId)
     {
-        var notificacoes = await _notificacaoRepository.FindAsync(n => n.IdUsuario == usuarioId && !n.Lida);
-        return notificacoes.OrderByDescending(n => n.DataCriacao).ToList();
+        if (string.IsNullOrEmpty(usuarioId))
+            return new List<Notificacao>();
+
+        // 🆕 Verificar cache
+        lock (_cacheLock)
+        {
+            if (_cacheNaoLidas.TryGetValue(usuarioId, out var cached) && 
+                DateTime.UtcNow - cached.Time < CACHE_DURATION)
+            {
+                return cached.Data;
+            }
+        }
+
+        var notificacoes = await _notificacaoRepository.FindAsync(
+            n => n.IdUsuario == usuarioId && !n.Lida);
+
+        var resultado = notificacoes
+            .OrderByDescending(n => n.DataCriacao)
+            .Take(50) // 🆕 Limitar a 50 notificações
+            .ToList();
+
+        // 🆕 Salvar no cache
+        lock (_cacheLock)
+        {
+            _cacheNaoLidas[usuarioId] = (resultado, DateTime.UtcNow);
+        }
+
+        return resultado;
     }
 
     public async Task<List<Notificacao>> GetAllAsync(string usuarioId)
     {
-        var notificacoes = await _notificacaoRepository.FindAsync(n => n.IdUsuario == usuarioId);
-        return notificacoes.OrderByDescending(n => n.DataCriacao).ToList();
+        if (string.IsNullOrEmpty(usuarioId))
+            return new List<Notificacao>();
+
+        var notificacoes = await _notificacaoRepository.FindAsync(
+            n => n.IdUsuario == usuarioId);
+
+        return notificacoes
+            .OrderByDescending(n => n.DataCriacao)
+            .Take(100) // 🆕 Limitar a 100 notificações
+            .ToList();
     }
 
     public async Task MarcarComoLidasAsync(string usuarioId)
     {
-        var naoLidas = await _notificacaoRepository.FindAsync(n => n.IdUsuario == usuarioId && !n.Lida);
+        if (string.IsNullOrEmpty(usuarioId))
+            throw new ArgumentException("ID do usuário é obrigatório");
+
+        var naoLidas = await _notificacaoRepository.FindAsync(
+            n => n.IdUsuario == usuarioId && !n.Lida);
+
+        if (!naoLidas.Any())
+            return;
+
+        // 🆕 Atualizar em lote (evitar N+1)
         foreach (var n in naoLidas)
         {
             n.Lida = true;
             n.DataAtualizacao = DateTime.UtcNow;
+        }
+
+        // 🆕 Se o repository suportar atualização em lote, usar
+        // await _notificacaoRepository.UpdateManyAsync(naoLidas);
+        // Caso contrário, atualizar individualmente
+        foreach (var n in naoLidas)
+        {
             await _notificacaoRepository.UpdateAsync(n.Id, n);
         }
+
+        // 🆕 Limpar cache
+        LimparCacheNaoLidas(usuarioId);
     }
 
-   public async Task CriarNotificacaoSeguidor(string idUsuario, string idSeguidor, string nomeSeguidor)
+    public async Task CriarNotificacaoSeguidor(string idUsuario, string idSeguidor, string nomeSeguidor)
     {
+        if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(idSeguidor))
+            return;
 
         var notificacao = new Notificacao
         {
@@ -66,10 +126,16 @@ public class NotificacaoService : INotificacaoService
         };
         
         await _notificacaoRepository.AddAsync(notificacao);
+
+        // 🆕 Limpar cache
+        LimparCacheNaoLidas(idUsuario);
     }
 
     public async Task CriarNotificacaoComentario(string idUsuarioDono, string idLivro, string tituloLivro, string nomeComentador)
     {
+        if (string.IsNullOrEmpty(idUsuarioDono) || string.IsNullOrEmpty(idLivro))
+            return;
+
         var notificacao = new Notificacao
         {
             Id = Guid.NewGuid().ToString(),
@@ -81,10 +147,16 @@ public class NotificacaoService : INotificacaoService
             Lida = false
         };
         await _notificacaoRepository.AddAsync(notificacao);
+
+        // 🆕 Limpar cache
+        LimparCacheNaoLidas(idUsuarioDono);
     }
 
     public async Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro)
     {
+        if (string.IsNullOrEmpty(idUsuarioDono) || string.IsNullOrEmpty(idOrigem))
+            return;
+
         var tipo = tipoAtividade == "livro" ? "curtida_livro" : "curtida_avaliacao";
         
         var mensagem = tipoAtividade == "avaliacao" 
@@ -102,26 +174,35 @@ public class NotificacaoService : INotificacaoService
             Lida = false
         };
         await _notificacaoRepository.AddAsync(notificacao);
+
+        // 🆕 Limpar cache
+        LimparCacheNaoLidas(idUsuarioDono);
     }
 
-     public async Task<bool> SubscribeAsync(SubscribeRequest request)
+    public async Task<bool> SubscribeAsync(SubscribeRequest request)
     {
         try
         {
+            // 🆕 Validação
+            if (string.IsNullOrEmpty(request?.UserId) || string.IsNullOrEmpty(request?.Token))
+                return false;
 
+            // Desativar subscriptions antigas do mesmo dispositivo
             var oldSubscriptions = await _subscriptionRepository.FindAsync(s => 
                 s.UserId == request.UserId && 
                 s.Device == request.Device && 
                 s.IsActive);
             
-                foreach (var old in oldSubscriptions)
-                {
-                    old.IsActive = false;
-                    await _subscriptionRepository.UpdateAsync(old.Id, old);
-                }
+            foreach (var old in oldSubscriptions)
+            {
+                old.IsActive = false;
+                old.LastUsedAt = DateTime.UtcNow;
+                await _subscriptionRepository.UpdateAsync(old.Id, old);
+            }
     
-            var existingSubscription = (await _subscriptionRepository.FindAsync(s => s.Token == request.Token))
-                .FirstOrDefault();
+            // Verificar se o token já existe
+            var existingSubscription = (await _subscriptionRepository.FindAsync(
+                s => s.Token == request.Token)).FirstOrDefault();
             
             if (existingSubscription != null)
             {
@@ -162,6 +243,10 @@ public class NotificacaoService : INotificacaoService
     {
         try
         {
+            // 🆕 Validação
+            if (string.IsNullOrEmpty(request?.UserId) || string.IsNullOrEmpty(request?.Token))
+                return false;
+
             var subscription = (await _subscriptionRepository.FindAsync(s => 
                 s.Token == request.Token && s.UserId == request.UserId))
                 .FirstOrDefault();
@@ -184,15 +269,20 @@ public class NotificacaoService : INotificacaoService
 
     public async Task<List<NotificationSubscription>> GetUserSubscriptionsAsync(string userId)
     {
+        if (string.IsNullOrEmpty(userId))
+            return new List<NotificationSubscription>();
+
         var subscriptions = await _subscriptionRepository.FindAsync(s => 
             s.UserId == userId && s.IsActive);
         
         return subscriptions.ToList();
     }
 
-    // 🆕 Notificação de incentivo (streak, leitura, incentivo)
     public async Task CriarNotificacaoIncentivo(string idUsuario, string tipo, string mensagem)
     {
+        if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(mensagem))
+            return;
+
         var notificacao = new Notificacao
         {
             Id = Guid.NewGuid().ToString(),
@@ -203,9 +293,11 @@ public class NotificacaoService : INotificacaoService
             Lida = false
         };
         await _notificacaoRepository.AddAsync(notificacao);
+
+        // 🆕 Limpar cache
+        LimparCacheNaoLidas(idUsuario);
     }
 
-    // 🆕 Notificação de streak
     public async Task CriarNotificacaoStreak(string idUsuario, int streakAtual)
     {
         await CriarNotificacaoIncentivo(
@@ -215,7 +307,6 @@ public class NotificacaoService : INotificacaoService
         );
     }
 
-    // 🆕 Notificação de leitura parada
     public async Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado)
     {
         await CriarNotificacaoIncentivo(
@@ -225,7 +316,6 @@ public class NotificacaoService : INotificacaoService
         );
     }
 
-    // 🆕 Notificação de incentivo inicial
     public async Task CriarNotificacaoIncentivoInicial(string idUsuario)
     {
         await CriarNotificacaoIncentivo(
@@ -235,5 +325,12 @@ public class NotificacaoService : INotificacaoService
         );
     }
 
-    
+    // 🆕 Método para limpar cache
+    private void LimparCacheNaoLidas(string usuarioId)
+    {
+        lock (_cacheLock)
+        {
+            _cacheNaoLidas.Remove(usuarioId);
+        }
+    }
 }

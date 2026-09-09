@@ -12,6 +12,9 @@ using BioTek.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+// 🆕 Usings para compressão e health checks
+using Microsoft.AspNetCore.ResponseCompression;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,6 +51,42 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddRateLimiter(options =>
 {
+    // 🆕 Política para autenticação (login/refresh)
+    options.AddPolicy("AuthPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 5,           // 5 tentativas de login
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // 🆕 Política para upload de imagens
+    options.AddPolicy("UploadPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 10,          // 10 uploads
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // 🆕 Política para admin (mais restritiva)
+    options.AddPolicy("AdminPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 50,          // 50 requisições admin
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     // Política para endpoints de notificação (mais restritiva)
     options.AddPolicy("NotificationPolicy", context =>
         RateLimitPartition.GetFixedWindowLimiter(
@@ -116,6 +155,13 @@ builder.Services.AddSingleton(sp =>
 {
     var connectionString = builder.Configuration.GetConnectionString("MongoDb");
     return new MongoDbContext(connectionString!, "BioTek");
+});
+
+// 🆕 Registrar IMongoClient para Health Checks
+builder.Services.AddSingleton<IMongoClient>(sp =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("MongoDb");
+    return new MongoClient(connectionString);
 });
 
 // ==========================================
@@ -210,7 +256,6 @@ builder.Services.AddScoped<IRepository<NotificationSubscription>>(sp =>
     return new MongoRepository<NotificationSubscription>(context, "NotificationSubscriptions");
 });
 
-
 // JobExecution (controle de jobs em background)
 builder.Services.AddScoped<IRepository<JobExecution>>(sp =>
 {
@@ -242,7 +287,6 @@ builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>
     return new MongoRepository<StreakUsuario>(context, "StreakUsuarios");
 });
 
-
 // ==========================================
 // 5. SERVICES (regras de negócio)
 // ==========================================
@@ -263,6 +307,7 @@ builder.Services.AddHttpClient<IFirebaseNotificationService, FirebaseNotificatio
 builder.Services.AddHostedService<ReadingReminderBackgroundService>();
 builder.Services.AddScoped<IStreakService, StreakService>();
 builder.Services.AddHostedService<StreakNotificationBackgroundService>();
+
 // ==========================================
 // 6. CONTROLLERS + SWAGGER
 // ==========================================
@@ -282,6 +327,21 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+
+// 🆕 Compressão de resposta (Brotli/Gzip)
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+
+// 🆕 Health Checks (MongoDB) - Usando IMongoClient
+builder.Services.AddHealthChecks()
+    .AddMongoDb(
+        sp => sp.GetRequiredService<IMongoClient>(),
+        name: "mongodb",
+        timeout: TimeSpan.FromSeconds(3));
 
 builder.Services.AddHttpClient();
 builder.Services.AddControllers();
@@ -320,10 +380,44 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// 🆕 Tratamento global de exceções
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        
+        var error = new { 
+            mensagem = "Erro interno do servidor",
+            traceId = context.TraceIdentifier
+        };
+        
+        await context.Response.WriteAsJsonAsync(error);
+    });
+});
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
+// 🆕 Headers de segurança
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-XSS-Protection"] = "1; mode=block";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'";
+    
+    await next();
+});
+
 app.UseHttpsRedirection();
+
+// 🆕 Compressão (antes do CORS)
+app.UseResponseCompression();
+
 app.UseCors("AllowAngular");
 
 // Rate Limiting (antes da autenticação)
@@ -331,6 +425,10 @@ app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// 🆕 Health Checks
+app.MapHealthChecks("/health");
+
 app.MapControllers();
 
 app.Run();

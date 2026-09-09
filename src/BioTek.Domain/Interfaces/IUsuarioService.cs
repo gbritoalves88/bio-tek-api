@@ -4,8 +4,8 @@ namespace BioTek.Domain.Interfaces;
 
 public interface IUsuarioService
 {
-    Task<IEnumerable<Usuario>> GetUsuariosAsync();
-     Task<Usuario?> GetPorIdAsync(string id);
+
+    Task<Usuario?> GetPorIdAsync(string id);
     Task<Usuario> CriarAsync(Usuario usuario);
     Task<Usuario?> GetPorNicknameAsync(string nickname);
     Task<Usuario?> AtualizarAsync(string id, Usuario usuario);
@@ -13,4 +13,5 @@ public interface IUsuarioService
     Task<object?> GetPerfilCompletoAsync(string usuarioId);
     Task<List<object>> BuscarAsync(string termo);
     Task UpdateFieldAsync(string id, string fieldName, object value);
+    Task<IEnumerable<object>> GetUsuariosAsync();
 }

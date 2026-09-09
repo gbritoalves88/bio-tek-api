@@ -1,10 +1,6 @@
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
-using BioTek.Application.Services;
-using System.Security.Cryptography.X509Certificates;
-using System.Linq;
-
 
 namespace BioTek.Application.Services;
 
@@ -13,13 +9,13 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
     private readonly IRepository<AvaliacaoLivro> _avaliacaoLivroRepository;
     private readonly ILivroService _livroService;
 
-    public AvaliacaoLivroService(IRepository<AvaliacaoLivro> avaliacaoLivroRepository, ILivroService livroService)
+    public AvaliacaoLivroService(
+        IRepository<AvaliacaoLivro> avaliacaoLivroRepository, 
+        ILivroService livroService)
     {
         _avaliacaoLivroRepository = avaliacaoLivroRepository;
         _livroService = livroService;
     }
-
-
 
     public async Task<bool> DeletarAsync(string id)
     {
@@ -30,25 +26,31 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
         return true;
     }
 
-
     public async Task<AvaliacaoLivro> CriarAsync(AvaliacaoLivro avaliacaoLivro)
     {
-        Console.WriteLine($"🔍 IdUsuario: {avaliacaoLivro.IdUsuario}");
-        Console.WriteLine($"📖 IdLivro: {avaliacaoLivro.IdLivro}");
+        // Validação da nota
+        if (!Enum.IsDefined(typeof(Nota), avaliacaoLivro.Nota))
+            throw new InvalidOperationException("Nota inválida");
 
-        var livrosDoUsuario = await _livroService.GetPorUsuarioAsync(avaliacaoLivro.IdUsuario);
-        Console.WriteLine($"📚 Livros encontrados: {livrosDoUsuario.Count()}");
-
-        foreach (var l in livrosDoUsuario)
-            Console.WriteLine($"   ID: {l.Id} | Título: {l.Titulo} | Status: {l.Status}");
-
-        var livro = ((IEnumerable<Livro>)livrosDoUsuario).FirstOrDefault(l => l.Id == avaliacaoLivro.IdLivro);
-
+        // Busca direta do livro
+        var livro = await _livroService.GetPorIdAsync(avaliacaoLivro.IdLivro);
+        
         if (livro == null)
             throw new InvalidOperationException("Livro não encontrado");
+        
+        if (livro.IdUsuario != avaliacaoLivro.IdUsuario)
+            throw new InvalidOperationException("Livro não pertence ao usuário");
 
         if (livro.Status != StatusLeitura.Lido)
             throw new InvalidOperationException("Só pode avaliar livros com status Lido");
+
+        // Verifica se já existe avaliação
+        var existente = (await _avaliacaoLivroRepository.FindAsync(a => 
+            a.IdLivro == avaliacaoLivro.IdLivro && 
+            a.IdUsuario == avaliacaoLivro.IdUsuario)).FirstOrDefault();
+        
+        if (existente != null)
+            throw new InvalidOperationException("Você já avaliou este livro");
 
         avaliacaoLivro.Id = Guid.NewGuid().ToString();
         avaliacaoLivro.DataCriacao = DateTime.UtcNow;
@@ -62,14 +64,13 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
         var existente = await _avaliacaoLivroRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-
         existente.Nota = avaliacaoLivro.Nota;
         existente.DataAtualizacao = DateTime.UtcNow;
-
 
         await _avaliacaoLivroRepository.UpdateAsync(id, existente);
         return existente;
     }
+
     public async Task<IEnumerable<AvaliacaoLivro>> GetPorUsuarioAsync(string usuarioIdAvaliacoes)
     {
         return await _avaliacaoLivroRepository.FindAsync(l => l.IdUsuario == usuarioIdAvaliacoes);
@@ -85,9 +86,8 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
         return await _avaliacaoLivroRepository.GetByIdAsync(id);
     }
 
-   public async Task<IEnumerable<AvaliacaoLivro>> GetTodasAsync()
+    public async Task<IEnumerable<AvaliacaoLivro>> GetTodasAsync()
     {
         return await _avaliacaoLivroRepository.GetAllAsync();
     }
-    
 }

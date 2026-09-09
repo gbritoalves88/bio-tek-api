@@ -35,8 +35,13 @@ public class NotificacaoController : ControllerBase
 
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-            ?? throw new UnauthorizedAccessException("Usuário não autenticado");
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
     private async Task<bool> IsAdminAsync()
@@ -54,6 +59,9 @@ public class NotificacaoController : ControllerBase
 
     #region Notificações Internas
 
+    /// <summary>
+    /// Buscar notificações não lidas
+    /// </summary>
     [HttpGet("nao-lidas")]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetNaoLidas()
@@ -74,6 +82,9 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Buscar todas as notificações
+    /// </summary>
     [HttpGet]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAll()
@@ -94,6 +105,9 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Marcar todas como lidas
+    /// </summary>
     [HttpPost("marcar-lidas")]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> MarcarLidas()
@@ -118,12 +132,18 @@ public class NotificacaoController : ControllerBase
 
     #region Push Notifications
 
+    /// <summary>
+    /// Registrar subscription para push notifications
+    /// </summary>
     [HttpPost("subscribe")]
     [EnableRateLimiting("NotificationPolicy")]
     public async Task<IActionResult> Subscribe([FromBody] SubscribeRequest request)
     {
         try
         {
+            if (request == null)
+                return BadRequest(new { message = "Dados são obrigatórios" });
+
             // Sempre usar o usuário autenticado, nunca o do request
             request.UserId = GetUsuarioId();
 
@@ -158,12 +178,18 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Cancelar subscription de push notifications
+    /// </summary>
     [HttpPost("unsubscribe")]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Unsubscribe([FromBody] UnsubscribeRequest request)
     {
         try
         {
+            if (request == null)
+                return BadRequest(new { message = "Dados são obrigatórios" });
+
             // Sempre usar o usuário autenticado
             request.UserId = GetUsuarioId();
 
@@ -185,6 +211,9 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Buscar subscriptions do usuário
+    /// </summary>
     [HttpGet("subscriptions")]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetUserSubscriptions()
@@ -205,6 +234,9 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Testar push notification (apenas admin)
+    /// </summary>
     [HttpPost("test-push")]
     [EnableRateLimiting("NotificationPolicy")]
     public async Task<IActionResult> TestPushNotification([FromBody] SubscribeRequest request)
@@ -215,7 +247,7 @@ public class NotificacaoController : ControllerBase
             if (!await IsAdminAsync())
                 return ForbiddenResult();
 
-            if (string.IsNullOrWhiteSpace(request.Token))
+            if (request == null || string.IsNullOrWhiteSpace(request.Token))
                 return BadRequest(new { message = "Token é obrigatório" });
 
             var success = await _firebaseNotificationService.SendNotificationAsync(
@@ -239,6 +271,9 @@ public class NotificacaoController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Enviar notificação para usuário específico (apenas admin)
+    /// </summary>
     [HttpPost("enviar-para-usuario")]
     [EnableRateLimiting("NotificationPolicy")]
     public async Task<IActionResult> EnviarParaUsuario([FromBody] EnviarNotificacaoRequest request)
@@ -250,7 +285,7 @@ public class NotificacaoController : ControllerBase
                 return ForbiddenResult();
 
             // Validações
-            if (string.IsNullOrWhiteSpace(request.UserId))
+            if (request == null || string.IsNullOrWhiteSpace(request.UserId))
                 return BadRequest(new { message = "UserId é obrigatório" });
 
             if (string.IsNullOrWhiteSpace(request.Title))
@@ -298,19 +333,24 @@ public class NotificacaoController : ControllerBase
 
     #endregion
 
+    /// <summary>
+    /// Registrar decisão de notificação
+    /// </summary>
     [HttpPost("registrar-decisao")]
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> RegistrarDecisao([FromBody] RegistrarDecisaoRequest request)
     {
         try
         {
+            if (request == null)
+                return BadRequest(new { message = "Dados são obrigatórios" });
+
             // Sempre usar o usuário autenticado
             request.UserId = GetUsuarioId();
             
             var usuario = await _usuarioService.GetPorIdAsync(request.UserId);
             if (usuario == null)
                 return NotFound(new { message = "Usuário não encontrado" });
-            
             
             await _usuarioService.AtualizarAsync(usuario.Id, usuario);
             

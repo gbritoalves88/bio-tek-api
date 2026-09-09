@@ -2,6 +2,7 @@ using System.Security.Claims;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
@@ -17,20 +18,35 @@ public class StreakController : ControllerBase
         _streakService = streakService;
     }
 
+    // 🆕 GetUsuarioId melhorado
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
     [HttpGet]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetStreak()
     {
-        var streak = await _streakService.GetStreakAsync(GetUsuarioId());
-        return Ok(streak);
+        try
+        {
+            var streak = await _streakService.GetStreakAsync(GetUsuarioId());
+            return Ok(streak);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
+        }
     }
 
     [HttpGet("historico")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetHistorico()
     {
         var historico = await _streakService.GetHistoricoAsync(GetUsuarioId());
@@ -38,15 +54,16 @@ public class StreakController : ControllerBase
     }
 
     [HttpGet("metricas-mes")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetMetricasMes()
     {
         var metricas = await _streakService.GetMetricasMesAsync(GetUsuarioId());
         return Ok(metricas);
     }
 
-    // 🆕 ENDPOINTS PÚBLICOS PARA VISUALIZAÇÃO
     [AllowAnonymous]
     [HttpGet("usuario/{usuarioId}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetStreakPorUsuario(string usuarioId)
     {
         var streak = await _streakService.GetStreakAsync(usuarioId);
@@ -55,6 +72,7 @@ public class StreakController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("usuario/{usuarioId}/historico")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetHistoricoPorUsuario(string usuarioId)
     {
         var historico = await _streakService.GetHistoricoAsync(usuarioId);
@@ -63,6 +81,7 @@ public class StreakController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("usuario/{usuarioId}/metricas-mes")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetMetricasMesPorUsuario(string usuarioId)
     {
         var metricas = await _streakService.GetMetricasMesAsync(usuarioId);

@@ -5,11 +5,14 @@ using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("AdminPolicy")]
 public class AdminController : ControllerBase
 {
     private readonly IRepository<ComentarioLivro> _comentarioRepository;
@@ -20,6 +23,12 @@ public class AdminController : ControllerBase
     private readonly IRepository<Seguidor> _seguidorRepository;
     private readonly IRepository<Notificacao> _notificacaoRepository;
     private readonly IRepository<Acesso> _acessoRepository;
+
+    // 🆕 Cache do dashboard
+    private static object? _cacheDashboard;
+    private static DateTime _cacheDashboardTime = DateTime.MinValue;
+    private static readonly object _cacheLock = new();
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(5);
 
     // 🆕 Emails para ignorar nas estatísticas (admins/testes)
     private static readonly string[] EmailsIgnorados = new[]
@@ -48,24 +57,30 @@ public class AdminController : ControllerBase
         _acessoRepository = acessoRepository;
     }
 
-    private string GetUsuarioId() =>
-        User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-        ?? User.FindFirst("sub")?.Value!;
+    // 🆕 GetUsuarioId melhorado
+    private string GetUsuarioId()
+    {
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
+    }
 
+    // 🆕 Verificação de admin com cache
     private async Task<bool> IsAdmin()
     {
         var usuario = await _usuarioRepository.GetByIdAsync(GetUsuarioId());
         return usuario?.Adm == true;
     }
 
-    // 🆕 Obter IDs dos usuários ignorados
+    // 🆕 Obter IDs dos usuários ignorados com cache
     private async Task<HashSet<string>> GetIdsIgnorados()
     {
-        var usuarios = await _usuarioRepository.GetAllAsync();
-        return usuarios
-            .Where(u => EmailsIgnorados.Contains(u.Email))
-            .Select(u => u.Id)
-            .ToHashSet();
+        var usuarios = await _usuarioRepository.FindAsync(u => EmailsIgnorados.Contains(u.Email));
+        return usuarios.Select(u => u.Id).ToHashSet();
     }
 
     // ===== DASHBOARD =====
@@ -74,15 +89,37 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
-        var idsIgnorados = await GetIdsIgnorados(); // 🆕
+        // 🆕 Cache do dashboard (sem filtros)
+        if (!dataInicio.HasValue && !dataFim.HasValue)
+        {
+            lock (_cacheLock)
+            {
+                if (_cacheDashboard != null && DateTime.UtcNow - _cacheDashboardTime < CACHE_DURATION)
+                {
+                    return Ok(_cacheDashboard);
+                }
+            }
+        }
 
-        var usuarios = (await _usuarioRepository.GetAllAsync())
-            .Where(u => !idsIgnorados.Contains(u.Id)); // 🆕 Filtra admins
-        var comentarios = await _comentarioRepository.GetAllAsync();
-        var livros = await _livroRepository.GetAllAsync();
-        var acessos = (await _acessoRepository.GetAllAsync())
-            .Where(a => !idsIgnorados.Contains(a.IdUsuario)); // 🆕 Filtra acessos dos admins
+        var idsIgnorados = await GetIdsIgnorados();
 
+        // 🆕 Buscar dados em paralelo
+        var tarefas = new
+        {
+            Usuarios = _usuarioRepository.GetAllAsync(),
+            Comentarios = _comentarioRepository.GetAllAsync(),
+            Livros = _livroRepository.GetAllAsync(),
+            Acessos = _acessoRepository.GetAllAsync()
+        };
+
+        await Task.WhenAll(tarefas.Usuarios, tarefas.Comentarios, tarefas.Livros, tarefas.Acessos);
+
+        var usuarios = (await tarefas.Usuarios).Where(u => !idsIgnorados.Contains(u.Id));
+        var comentarios = await tarefas.Comentarios;
+        var livros = await tarefas.Livros;
+        var acessos = (await tarefas.Acessos).Where(a => !idsIgnorados.Contains(a.IdUsuario));
+
+        // 🆕 Aplicar filtros de data
         if (dataInicio.HasValue)
         {
             usuarios = usuarios.Where(u => u.DataCriacao >= dataInicio.Value);
@@ -99,23 +136,45 @@ public class AdminController : ControllerBase
             acessos = acessos.Where(a => a.DataCriacao < fim);
         }
 
+        // 🆕 Materializar listas
+        var usuariosLista = usuarios.ToList();
+        var acessosLista = acessos.ToList();
+
         var agora = DateTime.UtcNow;
         var seteDias = agora.AddDays(-7);
         var trintaDias = agora.AddDays(-30);
 
-        return Ok(new
+        var resultado = new
         {
-            totalUsuarios = usuarios.Count(),
-            usuariosAtivos = usuarios.Count(u => u.Ativo),
+            totalUsuarios = usuariosLista.Count,
+            usuariosAtivos = usuariosLista.Count(u => u.Ativo),
             totalComentarios = comentarios.Count(),
             comentariosFlagged = comentarios.Count(c => c.Flagged),
             totalLivros = livros.Count(),
-            totalAcessos = acessos.Count(),
-            acessos7Dias = acessos.Count(a => a.DataCriacao >= seteDias),
-            acessos30Dias = acessos.Count(a => a.DataCriacao >= trintaDias),
-            mediaAcessosPorUsuario = usuarios.Any() ? Math.Round(usuarios.Average(u => (double)u.TotalAcessos), 1) : 0,
-            usuariosAtivos30Dias = acessos.Where(a => a.DataCriacao >= trintaDias).Select(a => a.IdUsuario).Distinct().Count()
-        });
+            totalAcessos = acessosLista.Count,
+            acessos7Dias = acessosLista.Count(a => a.DataCriacao >= seteDias),
+            acessos30Dias = acessosLista.Count(a => a.DataCriacao >= trintaDias),
+            mediaAcessosPorUsuario = usuariosLista.Any() 
+                ? Math.Round(usuariosLista.Average(u => (double)u.TotalAcessos), 1) 
+                : 0,
+            usuariosAtivos30Dias = acessosLista
+                .Where(a => a.DataCriacao >= trintaDias)
+                .Select(a => a.IdUsuario)
+                .Distinct()
+                .Count()
+        };
+
+        // 🆕 Salvar no cache (sem filtros)
+        if (!dataInicio.HasValue && !dataFim.HasValue)
+        {
+            lock (_cacheLock)
+            {
+                _cacheDashboard = resultado;
+                _cacheDashboardTime = DateTime.UtcNow;
+            }
+        }
+
+        return Ok(resultado);
     }
 
     // ===== USUÁRIOS =====
@@ -128,11 +187,24 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
+        // 🆕 Validar paginação
+        pagina = Math.Max(1, pagina);
+        limite = Math.Clamp(limite, 1, 100);
+
         var usuarios = (await _usuarioRepository.GetAllAsync()).AsEnumerable();
         var livros = await _livroRepository.GetAllAsync();
         var acessos = await _acessoRepository.GetAllAsync();
         var agora = DateTime.UtcNow;
         var trintaDias = agora.AddDays(-30);
+
+        // 🆕 Agrupar dados para evitar N+1
+        var livrosPorUsuario = livros
+            .GroupBy(l => l.IdUsuario)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var acessosPorUsuario = acessos
+            .GroupBy(a => a.IdUsuario)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         switch (status)
         {
@@ -160,23 +232,30 @@ public class AdminController : ControllerBase
                 break;
         }
 
-        var total = usuarios.Count();
+        var usuariosLista = usuarios.ToList();
+        var total = usuariosLista.Count;
         var totalPaginas = (int)Math.Ceiling(total / (double)limite);
 
-        var resultado = usuarios
+        var resultado = usuariosLista
             .Skip((pagina - 1) * limite)
             .Take(limite)
-            .Select(u => new
+            .Select(u =>
             {
-                u.Id, u.Nome, u.Nickname, u.Email, u.Ativo, u.Adm, u.DataCriacao,
-                u.QuantidadeLivros, u.QuantidadeLivrosLidos,
-                u.TotalAcessos,
-                u.UltimoAcesso,
-                u.AceitouTermos,
-                u.Avatar,
-                TotalLivros = livros.Count(l => l.IdUsuario == u.Id),
-                TotalLivrosLidos = livros.Count(l => l.IdUsuario == u.Id && l.Status == StatusLeitura.Lido),
-                Acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias)
+                var livrosUsuario = livrosPorUsuario.GetValueOrDefault(u.Id, new List<Livro>());
+                var acessosUsuario = acessosPorUsuario.GetValueOrDefault(u.Id, new List<Acesso>());
+
+                return new
+                {
+                    u.Id, u.Nome, u.Nickname, u.Email, u.Ativo, u.Adm, u.DataCriacao,
+                    u.QuantidadeLivros, u.QuantidadeLivrosLidos,
+                    u.TotalAcessos,
+                    u.UltimoAcesso,
+                    u.AceitouTermos,
+                    u.Avatar,
+                    TotalLivros = livrosUsuario.Count,
+                    TotalLivrosLidos = livrosUsuario.Count(l => l.Status == StatusLeitura.Lido),
+                    Acessos30Dias = acessosUsuario.Count(a => a.DataCriacao >= trintaDias)
+                };
             })
             .ToList();
 
@@ -187,6 +266,9 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> GetUsuario(string id)
     {
         if (!await IsAdmin()) return Forbid();
+
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
 
         var usuario = await _usuarioRepository.GetByIdAsync(id);
         if (usuario == null) return NotFound();
@@ -218,12 +300,18 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         var usuario = await _usuarioRepository.GetByIdAsync(id);
         if (usuario == null) return NotFound();
 
         usuario.Ativo = !usuario.Ativo;
         usuario.DataAtualizacao = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(id, usuario);
+
+        // 🆕 Limpar cache do dashboard
+        LimparCacheDashboard();
 
         return Ok(new { usuario.Id, usuario.Ativo, usuario.Nome });
     }
@@ -233,34 +321,52 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         if (id == GetUsuarioId())
             return BadRequest(new { mensagem = "Você não pode excluir sua própria conta" });
 
-        var livros = await _livroRepository.FindAsync(l => l.IdUsuario == id);
-        foreach (var livro in livros)
-            await _livroRepository.DeleteAsync(livro.Id);
+        // 🆕 Buscar todos os dados em paralelo
+        var tarefas = new
+        {
+            Livros = _livroRepository.FindAsync(l => l.IdUsuario == id),
+            Avaliacoes = _avaliacaoRepository.FindAsync(a => a.IdUsuario == id),
+            Comentarios = _comentarioRepository.FindAsync(c => c.IdUsuario == id),
+            Curtidas = _curtidaRepository.FindAsync(c => c.IdUsuario == id),
+            Seguidores = _seguidorRepository.FindAsync(s => s.IdUsuario == id || s.IdSeguidor == id),
+            Notificacoes = _notificacaoRepository.FindAsync(n => n.IdUsuario == id)
+        };
 
-        var avaliacoes = await _avaliacaoRepository.FindAsync(a => a.IdUsuario == id);
-        foreach (var av in avaliacoes)
-            await _avaliacaoRepository.DeleteAsync(av.Id);
+        await Task.WhenAll(tarefas.Livros, tarefas.Avaliacoes, tarefas.Comentarios, 
+            tarefas.Curtidas, tarefas.Seguidores, tarefas.Notificacoes);
 
-        var comentarios = await _comentarioRepository.FindAsync(c => c.IdUsuario == id);
-        foreach (var c in comentarios)
-            await _comentarioRepository.DeleteAsync(c.Id);
+        // 🆕 Deletar em paralelo
+        var tarefasDelete = new List<Task>();
+        
+        foreach (var livro in await tarefas.Livros)
+            tarefasDelete.Add(_livroRepository.DeleteAsync(livro.Id));
+        
+        foreach (var av in await tarefas.Avaliacoes)
+            tarefasDelete.Add(_avaliacaoRepository.DeleteAsync(av.Id));
+        
+        foreach (var c in await tarefas.Comentarios)
+            tarefasDelete.Add(_comentarioRepository.DeleteAsync(c.Id));
+        
+        foreach (var c in await tarefas.Curtidas)
+            tarefasDelete.Add(_curtidaRepository.DeleteAsync(c.Id));
+        
+        foreach (var s in await tarefas.Seguidores)
+            tarefasDelete.Add(_seguidorRepository.DeleteAsync(s.Id));
+        
+        foreach (var n in await tarefas.Notificacoes)
+            tarefasDelete.Add(_notificacaoRepository.DeleteAsync(n.Id));
 
-        var curtidas = await _curtidaRepository.FindAsync(c => c.IdUsuario == id);
-        foreach (var c in curtidas)
-            await _curtidaRepository.DeleteAsync(c.Id);
-
-        var seguidores = await _seguidorRepository.FindAsync(s => s.IdUsuario == id || s.IdSeguidor == id);
-        foreach (var s in seguidores)
-            await _seguidorRepository.DeleteAsync(s.Id);
-
-        var notificacoes = await _notificacaoRepository.FindAsync(n => n.IdUsuario == id);
-        foreach (var n in notificacoes)
-            await _notificacaoRepository.DeleteAsync(n.Id);
-
+        await Task.WhenAll(tarefasDelete);
         await _usuarioRepository.DeleteAsync(id);
+
+        // 🆕 Limpar cache do dashboard
+        LimparCacheDashboard();
 
         return NoContent();
     }
@@ -271,12 +377,15 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
+        pagina = Math.Max(1, pagina);
+        limite = Math.Clamp(limite, 1, 100);
+
         var comentarios = await _comentarioRepository.GetAllAsync();
         var usuarios = await _usuarioRepository.GetAllAsync();
         var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
 
-        var query = comentarios.OrderByDescending(c => c.DataCriacao);
-        var total = query.Count();
+        var query = comentarios.OrderByDescending(c => c.DataCriacao).ToList();
+        var total = query.Count;
         var totalPaginas = (int)Math.Ceiling(total / (double)limite);
 
         var resultado = query
@@ -307,6 +416,10 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> DeletarComentario(string id)
     {
         if (!await IsAdmin()) return Forbid();
+
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         await _comentarioRepository.DeleteAsync(id);
         return NoContent();
     }
@@ -315,6 +428,9 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> AprovarComentario(string id)
     {
         if (!await IsAdmin()) return Forbid();
+
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
 
         var comentario = await _comentarioRepository.GetByIdAsync(id);
         if (comentario == null) return NotFound();
@@ -332,12 +448,15 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
+        pagina = Math.Max(1, pagina);
+        limite = Math.Clamp(limite, 1, 100);
+
         var livros = await _livroRepository.GetAllAsync();
         var usuarios = await _usuarioRepository.GetAllAsync();
         var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
 
-        var query = livros.OrderByDescending(l => l.DataCriacao);
-        var total = query.Count();
+        var query = livros.OrderByDescending(l => l.DataCriacao).ToList();
+        var total = query.Count;
         var totalPaginas = (int)Math.Ceiling(total / (double)limite);
 
         var resultado = query
@@ -357,6 +476,10 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> ExcluirLivro(string id)
     {
         if (!await IsAdmin()) return Forbid();
+
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         await _livroRepository.DeleteAsync(id);
         return NoContent();
     }
@@ -367,26 +490,36 @@ public class AdminController : ControllerBase
     {
         if (!await IsAdmin()) return Forbid();
 
-        var idsIgnorados = await GetIdsIgnorados(); // 🆕
+        var idsIgnorados = await GetIdsIgnorados();
 
         var usuarios = (await _usuarioRepository.GetAllAsync())
-            .Where(u => !idsIgnorados.Contains(u.Id)); // 🆕 Filtra admins
+            .Where(u => !idsIgnorados.Contains(u.Id));
         var livros = await _livroRepository.GetAllAsync();
         var acessos = (await _acessoRepository.GetAllAsync())
-            .Where(a => !idsIgnorados.Contains(a.IdUsuario)); // 🆕 Filtra acessos dos admins
+            .Where(a => !idsIgnorados.Contains(a.IdUsuario));
         var comentarios = await _comentarioRepository.GetAllAsync();
         var agora = DateTime.UtcNow;
         var trintaDias = agora.AddDays(-30);
+
+        // 🆕 Agrupar para evitar N+1
+        var livrosPorUsuario = livros
+            .GroupBy(l => l.IdUsuario)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var acessosPorUsuario = acessos
+            .GroupBy(a => a.IdUsuario)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var sb = new StringBuilder();
         sb.AppendLine("Nome,Nickname,Email,Admin,Ativo,Cadastro,Último Acesso,Total Acessos,Acessos 30d,Livros,Livros Lidos,Aceitou Termos");
 
         foreach (var u in usuarios.OrderByDescending(u => u.TotalAcessos))
         {
-            var livrosUsuario = livros.Where(l => l.IdUsuario == u.Id).ToList();
+            var livrosUsuario = livrosPorUsuario.GetValueOrDefault(u.Id, new List<Livro>());
+            var acessosUsuario = acessosPorUsuario.GetValueOrDefault(u.Id, new List<Acesso>());
             var totalLivros = livrosUsuario.Count;
             var livrosLidos = livrosUsuario.Count(l => l.Status == StatusLeitura.Lido);
-            var acessos30Dias = acessos.Count(a => a.IdUsuario == u.Id && a.DataCriacao >= trintaDias);
+            var acessos30Dias = acessosUsuario.Count(a => a.DataCriacao >= trintaDias);
             var ultimoAcesso = u.UltimoAcesso.HasValue ? u.UltimoAcesso.Value.ToString("yyyy-MM-dd HH:mm") : "Nunca";
 
             sb.AppendLine($"{EscapeCsv(u.Nome)},{EscapeCsv(u.Nickname)},{u.Email},{u.Adm},{u.Ativo},{u.DataCriacao:yyyy-MM-dd HH:mm},{ultimoAcesso},{u.TotalAcessos},{acessos30Dias},{totalLivros},{livrosLidos},{u.AceitouTermos}");
@@ -416,11 +549,22 @@ public class AdminController : ControllerBase
     [HttpGet("health")]
     [HttpHead("health")]
     [AllowAnonymous]
+    [EnableRateLimiting("GeneralPolicy")]
     public IActionResult Get()
     {
         return Ok(new { 
             status = "ok", 
             timestamp = DateTime.UtcNow 
         });
+    }
+
+    // 🆕 Limpar cache do dashboard
+    private void LimparCacheDashboard()
+    {
+        lock (_cacheLock)
+        {
+            _cacheDashboard = null;
+            _cacheDashboardTime = DateTime.MinValue;
+        }
     }
 }

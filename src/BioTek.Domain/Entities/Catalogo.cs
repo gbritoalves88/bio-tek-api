@@ -15,5 +15,6 @@ public class Catalogo : BaseEntity
     public int? AnoPublicacao { get; set; }
     public string? Editora { get; set; }
     public int? NumeroPaginas { get; set; }
-    public double? AvaliacaoMedia { get; set; }  
+    public double? AvaliacaoMedia { get; set; } 
+     public string? Idioma { get; set; }  
 }

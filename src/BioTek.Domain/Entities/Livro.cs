@@ -19,12 +19,16 @@ public class Livro : BaseEntity
     public int? TotalPaginas { get; set; }
     public DateTime? UltimaLeitura { get; set; }
     
-    // 🆕 Campos para Audiobook
-    public string? Tipo { get; set; } = "livro";  // "livro" ou "audiobook"
+    public string? Tipo { get; set; } = "livro";
     public int? MinutoAtual { get; set; }
     public int? TotalMinutos { get; set; }
-}
 
+    // 🆕 Novos campos
+    public List<string>? Generos { get; set; } = new();
+    public int? AnoPublicacao { get; set; }
+    public string? Editora { get; set; }
+    public string? Idioma { get; set; }
+}
 public class LivroDetalhesWeb
 {
     public string? Editora { get; set; }

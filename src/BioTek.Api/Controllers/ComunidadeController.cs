@@ -1,12 +1,12 @@
 using System.Security.Claims;
-using BioTek.Domain.Entities;
+using BioTek.Api.Models;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-namespace BioTek.Api.Controllers;
-using BioTek.Api.Models;
+using Microsoft.AspNetCore.RateLimiting;
 
-[Authorize]
+namespace BioTek.Api.Controllers;
+
 [ApiController]
 [Route("api/[controller]")]
 public class ComunidadeController : ControllerBase
@@ -18,26 +18,53 @@ public class ComunidadeController : ControllerBase
         _comunidadeService = comunidadeService;
     }
 
-     private string GetUsuarioId()
+    // 🆕 GetUsuarioId melhorado
+    private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
+    /// <summary>
+    /// Feed da comunidade (público, mas personalizado se autenticado)
+    /// </summary>
     [AllowAnonymous]
     [HttpGet("feed")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetFeed([FromQuery] int limite = 30)
     {
-        var atividades = await _comunidadeService.GetFeedAsync(GetUsuarioId(), limite);
+        // Validação do limite
+        if (limite <= 0 || limite > 50)
+            return BadRequest(new { mensagem = "Limite deve estar entre 1 e 50" });
+
+        var usuarioId = User.Identity?.IsAuthenticated == true ? GetUsuarioId() : null;
+        var atividades = await _comunidadeService.GetFeedAsync(usuarioId, limite);
         return Ok(atividades);
     }
 
+    /// <summary>
+    /// Curtir uma atividade
+    /// </summary>
+    [Authorize]
     [HttpPost("{id}/curtir")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Curtir(string id, [FromBody] CurtirRequest request)
     {
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID da atividade é obrigatório" });
+
+        if (string.IsNullOrEmpty(request?.TipoAtividade))
+            return BadRequest(new { mensagem = "Tipo de atividade é obrigatório" });
+
+        var usuarioId = GetUsuarioId();
         await _comunidadeService.CurtirAsync(
             id, 
-            GetUsuarioId(), 
+            usuarioId, 
             request.TipoAtividade,
             request.IdUsuarioDono,
             request.NomeCurtidor,
@@ -46,11 +73,19 @@ public class ComunidadeController : ControllerBase
         return Ok(new { mensagem = "Curtida registrada!" });
     }
 
+    /// <summary>
+    /// Remover curtida de uma atividade
+    /// </summary>
+    [Authorize]
     [HttpDelete("{id}/curtir")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Descurtir(string id)
     {
-        await _comunidadeService.DescurtirAsync(id, GetUsuarioId());
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID da atividade é obrigatório" });
+
+        var usuarioId = GetUsuarioId();
+        await _comunidadeService.DescurtirAsync(id, usuarioId);
         return Ok(new { mensagem = "Curtida removida!" });
     }
-
 }

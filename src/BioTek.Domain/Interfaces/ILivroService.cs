@@ -12,9 +12,10 @@ public interface ILivroService
     Task<Livro?> AtualizarAsync(string id, Livro livro, int? estrelas = null);
     Task<bool> DeletarAsync(string id);
     Task<Livro?> BuscarPorIsbnAsync(string isbn);
-    Task<IEnumerable<Livro>> GetTodosAsync();
+    //Task<IEnumerable<Livro>> GetTodosAsync();
     Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId);
     Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request);
     Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId);
     Task<object?> GetDetalhesInternoAsync(string id); // 🆕
+    Task<IEnumerable<object>> GetTodosAsync();
 }

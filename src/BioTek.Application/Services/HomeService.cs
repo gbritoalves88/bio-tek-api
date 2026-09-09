@@ -9,29 +9,65 @@ public class HomeService : IHomeService
 {
     private readonly IRepository<Livro> _livroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
-    private readonly IRepository<Notificacao> _notificacaoRepository; // 🆕
+    private readonly IRepository<Notificacao> _notificacaoRepository;
+    private readonly IRepository<Usuario> _usuarioRepository; // 🆕
     private readonly IStreakService _streakService;
-    private readonly ILogger<HomeService> _logger; // 🆕
+    private readonly ILogger<HomeService> _logger;
+
+    // 🆕 Cache do dashboard
+    private static object? _cacheDashboard;
+    private static string? _cacheUsuarioId;
+    private static DateTime _cacheTime = DateTime.MinValue;
+    private static readonly object _cacheLock = new();
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(60);
 
     public HomeService(
         IRepository<Livro> livroRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
-        IRepository<Notificacao> notificacaoRepository, // 🆕
+        IRepository<Notificacao> notificacaoRepository,
+        IRepository<Usuario> usuarioRepository, // 🆕
         IStreakService streakService,
-        ILogger<HomeService> logger) // 🆕
+        ILogger<HomeService> logger)
     {
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
         _notificacaoRepository = notificacaoRepository;
+        _usuarioRepository = usuarioRepository;
         _streakService = streakService;
         _logger = logger;
     }
 
     public async Task<object> GetDashboardAsync(string usuarioId)
     {
-        var todosLivros = await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
-        var todasAvaliacoes = await _avaliacaoRepository.GetAllAsync();
-        var todosLivrosCatalogo = await _livroRepository.GetAllAsync();
+        // 🆕 Verifica se usuário está ativo
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario == null || !usuario.Ativo)
+            throw new UnauthorizedAccessException("Usuário inativo ou não encontrado");
+
+        // 🆕 Verifica cache
+        var cacheHit = false;
+        lock (_cacheLock)
+        {
+            if (_cacheDashboard != null && 
+                _cacheUsuarioId == usuarioId && 
+                DateTime.UtcNow - _cacheTime < CACHE_DURATION)
+            {
+                cacheHit = true;
+            }
+        }
+
+        if (cacheHit)
+        {
+            return _cacheDashboard!;
+        }
+
+        // ========== BUSCA DE DADOS OTIMIZADA ==========
+
+        // 1. Livros do usuário (filtro no banco)
+        var todosLivros = (await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId)).ToList();
+
+        // 2. Avaliações com nota >= 4 (evita GetAllAsync)
+        var avaliacoesBoas = (await _avaliacaoRepository.FindAsync(a => (int)a.Nota >= 4)).ToList();
 
         // 1. Livro atual
         var livroAtual = todosLivros
@@ -56,12 +92,16 @@ public class HomeService : IHomeService
                 l.TotalPaginas,
                 l.TotalMinutos,
                 l.Status,
-                l.DataCriacao
+                l.DataCriacao,
+                l.Generos,
+                l.AnoPublicacao,
+                l.Editora,
+                l.Idioma
             })
             .ToList();
 
-        // 3. Recomendados
-        var topAvaliados = todasAvaliacoes
+        // 3. Recomendados (OTIMIZADO - evita GetAllAsync)
+        var recomendadosIds = avaliacoesBoas
             .Where(a => a.IdUsuario != usuarioId)
             .GroupBy(a => a.IdLivro)
             .Where(g => g.Average(a => (int)a.Nota) >= 4)
@@ -71,12 +111,19 @@ public class HomeService : IHomeService
                 Media = Math.Round(g.Average(a => (int)a.Nota), 1),
                 Total = g.Count()
             })
+            .Take(50) // 🆕 Limita ANTES de embaralhar
             .OrderBy(x => Guid.NewGuid())
             .Take(10)
-            .ToList()
+            .ToList();
+
+        // Busca só os livros recomendados (não todos)
+        var recomendadosIdsSet = recomendadosIds.Select(x => x.LivroId).ToHashSet();
+        var livrosRecomendados = (await _livroRepository.FindAsync(l => recomendadosIdsSet.Contains(l.Id))).ToList();
+
+        var topAvaliados = recomendadosIds
             .Select(item =>
             {
-                var livro = todosLivrosCatalogo.FirstOrDefault(l => l.Id == item.LivroId);
+                var livro = livrosRecomendados.FirstOrDefault(l => l.Id == item.LivroId);
                 if (livro == null) return null;
                 return new
                 {
@@ -89,6 +136,10 @@ public class HomeService : IHomeService
                     livro.Tipo,
                     livro.TotalPaginas,
                     livro.TotalMinutos,
+                    livro.Generos,
+                    livro.AnoPublicacao,
+                    livro.Editora,
+                    livro.Idioma,
                     item.Media,
                     TotalAvaliacoes = item.Total
                 };
@@ -99,10 +150,7 @@ public class HomeService : IHomeService
         // 4. Streak
         var streak = await _streakService.GetStreakAsync(usuarioId);
 
-        // 🆕 5. Gerar notificações de incentivo
-        await GerarNotificacoesIncentivo(usuarioId, livroAtual, todosLivros, streak);
-
-        return new
+        var resultado = new
         {
             livroAtual = livroAtual == null ? null : new
             {
@@ -120,20 +168,48 @@ public class HomeService : IHomeService
                 livroAtual.PaginaAtual,
                 livroAtual.Pausado,
                 livroAtual.UltimaLeitura,
-                livroAtual.MinutoAtual
+                livroAtual.MinutoAtual,
+                livroAtual.Generos,
+                livroAtual.AnoPublicacao,
+                livroAtual.Editora,
+                livroAtual.Idioma
             },
             listaLeitura,
             topAvaliados,
             streak
         };
+
+        // 🆕 Salva no cache
+        lock (_cacheLock)
+        {
+            _cacheDashboard = resultado;
+            _cacheUsuarioId = usuarioId;
+            _cacheTime = DateTime.UtcNow;
+        }
+
+        // 🆕 Só gera notificações se NÃO estava em cache
+        await GerarNotificacoesIncentivo(usuarioId, livroAtual, todosLivros, streak);
+
+        return resultado;
     }
 
-    // 🆕 Método para gerar notificações de incentivo
+    // 🆕 Limpa cache (chamado quando dados mudam)
+    public void LimparCache()
+    {
+        lock (_cacheLock)
+        {
+            _cacheDashboard = null;
+            _cacheUsuarioId = null;
+            _cacheTime = DateTime.MinValue;
+        }
+    }
+
+    // Método para gerar notificações de incentivo
     private async Task GerarNotificacoesIncentivo(
-    string usuarioId,
-    Livro? livroAtual,
-    IEnumerable<Livro> todosLivros,
-    object? streak)
+        string usuarioId,
+        Livro? livroAtual,
+        IEnumerable<Livro> todosLivros,
+        object? streak)
     {
         try
         {
@@ -144,8 +220,8 @@ public class HomeService : IHomeService
             if (streak != null)
             {
                 var streakData = streak as dynamic;
-                var sequenciaAtual = (int)streakData?.sequenciaAtual; // 🆕 minúscula
-                var ultimaAtividade = streakData?.ultimaDataAtividade as DateTime?; // 🆕 minúscula
+                var sequenciaAtual = (int)streakData?.sequenciaAtual;
+                var ultimaAtividade = streakData?.ultimaDataAtividade as DateTime?;
                 
                 if (sequenciaAtual > 0 && ultimaAtividade?.Date != hoje)
                 {
@@ -196,7 +272,6 @@ public class HomeService : IHomeService
         }
     }
 
-    // 🆕 Verificar se já tem notificação do tipo nas últimas 24h
     private async Task<bool> JaTemNotificacao(string usuarioId, string tipo)
     {
         var existentes = await _notificacaoRepository.FindAsync(n =>
@@ -207,7 +282,6 @@ public class HomeService : IHomeService
         return existentes.Any();
     }
 
-    // 🆕 Criar notificação
     private async Task CriarNotificacao(string usuarioId, string tipo, string mensagem)
     {
         var notificacao = new Notificacao

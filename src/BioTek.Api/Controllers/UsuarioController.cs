@@ -1,11 +1,9 @@
+using System.Security.Claims;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
-using BioTek.Infrastructure.Data;
-using BioTek.Infrastructure.Repositories;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using BioTek.Application.Services;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
@@ -21,61 +19,152 @@ public class UsuarioController : ControllerBase
         _usuarioService = usuarioService;
     }
 
+    // 🆕 GetUsuarioId melhorado
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
-    // GET: api/usuario
+    /// <summary>
+    /// Lista todos os usuários (apenas admin)
+    /// </summary>
     [HttpGet]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAll()
     {
+        var usuarioLogado = await _usuarioService.GetPorIdAsync(GetUsuarioId());
+        if (usuarioLogado == null || !usuarioLogado.Adm)
+            return Forbid();
+
         var usuarios = await _usuarioService.GetUsuariosAsync();
         return Ok(usuarios);
     }
 
-    // GET: api/usuario/{id}
+    /// <summary>
+    /// Busca usuário por ID (público)
+    /// </summary>
+    [AllowAnonymous]
     [HttpGet("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetById(string id)
     {
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         var usuario = await _usuarioService.GetPorIdAsync(id);
         if (usuario == null)
             return NotFound();
 
-        return Ok(usuario);
+        // 🆕 Retornar apenas dados públicos
+        return Ok(new
+        {
+            usuario.Id,
+            usuario.Nome,
+            usuario.Nickname,
+            usuario.Avatar,
+            usuario.Descricao,
+            usuario.DataCriacao
+        });
     }
 
-    // GET: api/Usuario/nickname/{nickname}
+    /// <summary>
+    /// Busca usuário por nickname (público)
+    /// </summary>
+    [AllowAnonymous]
     [HttpGet("nickname/{nickname}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorNickname(string nickname)
     {
+        if (string.IsNullOrWhiteSpace(nickname))
+            return BadRequest(new { mensagem = "Nickname é obrigatório" });
+
         var usuario = await _usuarioService.GetPorNicknameAsync(nickname);
         if (usuario == null) return NotFound();
-        return Ok(usuario);
+
+        // 🆕 Retornar apenas dados públicos
+        return Ok(new
+        {
+            usuario.Id,
+            usuario.Nome,
+            usuario.Nickname,
+            usuario.Avatar,
+            usuario.Descricao
+        });
     }
 
-    // POST: api/usuario
+    /// <summary>
+    /// Criar usuário (público - cadastro)
+    /// </summary>
+    [AllowAnonymous]
     [HttpPost]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Create([FromBody] Usuario usuario)
     {
-        await _usuarioService.CriarAsync(usuario);
-        return CreatedAtAction(nameof(GetById), new { id = usuario.Id }, usuario);
+        try
+        {
+            var novoUsuario = await _usuarioService.CriarAsync(usuario);
+            return CreatedAtAction(nameof(GetById), new { id = novoUsuario.Id }, novoUsuario);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });
+        }
     }
 
-    // PUT: api/usuario/{id}
+    /// <summary>
+    /// Atualizar usuário (apenas dono ou admin)
+    /// </summary>
     [HttpPut("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Update(string id, [FromBody] Usuario usuario)
     {
-        await _usuarioService.AtualizarAsync(id, usuario);
-        
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
+        var usuarioLogadoId = GetUsuarioId();
+        var usuarioLogado = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
+
+        // 🆕 Verificar se é o dono ou admin
+        if (usuarioLogado == null || (usuarioLogado.Id != id && !usuarioLogado.Adm))
+            return Forbid();
+
+        var atualizado = await _usuarioService.AtualizarAsync(id, usuario);
+        if (atualizado == null)
+            return NotFound();
+
         return NoContent();
     }
 
-    // DELETE: api/usuario/{id}
+    /// <summary>
+    /// Deletar usuário (apenas dono ou admin)
+    /// </summary>
     [HttpDelete("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Delete(string id)
     {
-        await _usuarioService.DeletarAsync(id);
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
+        var usuarioLogadoId = GetUsuarioId();
+        var usuarioLogado = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
+
+        // 🆕 Verificar se é o dono ou admin
+        if (usuarioLogado == null || (usuarioLogado.Id != id && !usuarioLogado.Adm))
+            return Forbid();
+
+        var deletado = await _usuarioService.DeletarAsync(id);
+        if (!deletado)
+            return NotFound();
 
         return NoContent();
     }
@@ -85,8 +174,12 @@ public class UsuarioController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("{id}/perfil-completo")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPerfilCompleto(string id)
     {
+        if (string.IsNullOrEmpty(id))
+            return BadRequest(new { mensagem = "ID é obrigatório" });
+
         var resultado = await _usuarioService.GetPerfilCompletoAsync(id);
         if (resultado == null) return NotFound();
         return Ok(resultado);
@@ -96,9 +189,10 @@ public class UsuarioController : ControllerBase
     /// Aceitar termos de uso (usuário logado)
     /// </summary>
     [HttpPut("aceitar-termos")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> AceitarTermos()
     {
-        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var id = GetUsuarioId();
         var usuario = await _usuarioService.GetPorIdAsync(id);
         if (usuario == null) return NotFound();
 
@@ -108,19 +202,19 @@ public class UsuarioController : ControllerBase
 
         return Ok(new { mensagem = "Termos aceitos com sucesso." });
     }
-    
 
     /// <summary>
     /// Lista todos os usuários (apenas para admin)
     /// </summary>
     [Authorize]
     [HttpGet("todos")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAllUsuarios()
     {
         var usuarioLogado = await _usuarioService.GetPorIdAsync(GetUsuarioId());
         
         if (usuarioLogado == null || !usuarioLogado.Adm)
-            return Forbid("Acesso apenas para administradores");
+            return Forbid();
         
         var usuarios = await _usuarioService.GetUsuariosAsync();
         return Ok(usuarios);
@@ -131,6 +225,7 @@ public class UsuarioController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("buscar")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Buscar([FromQuery] string q)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
@@ -144,6 +239,7 @@ public class UsuarioController : ControllerBase
     /// Desativa a conta do usuário (quando recusa os termos)
     /// </summary>
     [HttpPost("desativar")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Desativar()
     {
         var id = GetUsuarioId();

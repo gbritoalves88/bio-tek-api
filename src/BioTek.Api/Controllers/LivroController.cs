@@ -3,6 +3,7 @@ using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Json;
 using BioTek.Api.Models;
 
@@ -22,15 +23,23 @@ public class LivroController : ControllerBase
         _httpClient = httpClientFactory.CreateClient();
     }
 
+    // 🆕 GetUsuarioId melhorado
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                 ?? User.FindFirst("sub")?.Value;
+        
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+        
+        return id;
     }
 
     /// <summary>
     /// Busca livro por ISBN na Open Library
     /// </summary>
-   [HttpGet("buscar/isbn/{isbn}")]
+    [HttpGet("buscar/isbn/{isbn}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> BuscarPorIsbn(string isbn)
     {
         var livro = await _livroService.BuscarPorIsbnAsync(isbn);
@@ -41,6 +50,7 @@ public class LivroController : ControllerBase
     }
     
     [HttpGet]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetMeusLivros()
     {
         var livros = await _livroService.GetMeusLivrosAsync(GetUsuarioId());
@@ -48,10 +58,19 @@ public class LivroController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorId(string id)
     {
+        var usuarioId = GetUsuarioId();
         var livro = await _livroService.GetPorIdAsync(id);
+        
+        // 🆕 Verifica se o livro é do usuário (ou público)
         if (livro == null) return NotFound();
+        
+        // 🆕 Se não é do usuário, não retorna dados completos
+        if (livro.IdUsuario != usuarioId)
+            return NotFound();
+        
         return Ok(livro);
     }
 
@@ -60,41 +79,59 @@ public class LivroController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("usuario/{usuarioId}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorUsuario(string usuarioId)
     {
         var livros = await _livroService.GetPorUsuarioAsync(usuarioId);
         return Ok(livros);
     }
 
-    [HttpPost][HttpPost]
+    [HttpPost]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Criar([FromBody] Livro livro)
     {
         try
         {
             livro.IdUsuario = GetUsuarioId();
+            
+            // 🆕 Validações básicas
+            if (string.IsNullOrWhiteSpace(livro.Titulo))
+                return BadRequest(new { mensagem = "Título é obrigatório" });
+            if (string.IsNullOrWhiteSpace(livro.Autor))
+                return BadRequest(new { mensagem = "Autor é obrigatório" });
+            
             var novo = await _livroService.CriarAsync(livro);
             return CreatedAtAction(nameof(GetPorId), new { id = novo.Id }, novo);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { mensagem = ex.Message });  // 400
+            return BadRequest(new { mensagem = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
         }
     }
 
-
     [HttpPut("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Atualizar(string id, [FromBody] JsonElement body)
     {
         try
         {
-            // Desserializa o Livro
+            var usuarioId = GetUsuarioId();
+            
+            // 🆕 Verifica se o livro pertence ao usuário
+            var existente = await _livroService.GetPorIdAsync(id);
+            if (existente == null || existente.IdUsuario != usuarioId)
+                return NotFound(new { mensagem = "Livro não encontrado" });
+            
             var livro = JsonSerializer.Deserialize<Livro>(body.GetRawText(), 
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (livro == null)
                 return BadRequest(new { mensagem = "Dados inválidos" });
 
-            // Extrai estrelas manualmente (campo extra)
             int? estrelas = null;
             if (body.TryGetProperty("estrelas", out var estrelasElement) && 
                 estrelasElement.ValueKind != JsonValueKind.Null)
@@ -116,11 +153,23 @@ public class LivroController : ControllerBase
         {
             return BadRequest(new { mensagem = ex.Message });
         }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
+        }
     }
 
     [HttpDelete("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Deletar(string id)
     {
+        var usuarioId = GetUsuarioId();
+        
+        // 🆕 Verifica se o livro pertence ao usuário
+        var existente = await _livroService.GetPorIdAsync(id);
+        if (existente == null || existente.IdUsuario != usuarioId)
+            return NotFound();
+        
         var deletado = await _livroService.DeletarAsync(id);
         if (!deletado) return NotFound();
         return NoContent();
@@ -131,6 +180,7 @@ public class LivroController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("todos")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAllPublico()
     {
         var livros = await _livroService.GetTodosAsync();
@@ -138,9 +188,10 @@ public class LivroController : ControllerBase
     }
 
     /// <summary>
-    /// Biblioteca completa do usuário (livros + avaliações + comentários)
+    /// Biblioteca completa do usuário
     /// </summary>
     [HttpGet("biblioteca")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetBibliotecaCompleta()
     {
         var livros = await _livroService.GetBibliotecaCompletaAsync(GetUsuarioId());
@@ -148,9 +199,10 @@ public class LivroController : ControllerBase
     }
 
     /// <summary>
-    /// Atualiza progresso de leitura (página, progresso, pausar/retomar)
+    /// Atualiza progresso de leitura
     /// </summary>
     [HttpPut("{id}/progresso")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> AtualizarProgresso(string id, [FromBody] AtualizarProgressoRequest request)
     {
         var atualizado = await _livroService.AtualizarProgressoAsync(id, GetUsuarioId(), request);
@@ -160,11 +212,18 @@ public class LivroController : ControllerBase
         return Ok(atualizado);
     }
 
-   [HttpGet("proxy-imagem")]
+    [HttpGet("proxy-imagem")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> ProxyImagem([FromQuery] string url)
     {
         if (string.IsNullOrEmpty(url))
             return BadRequest();
+        
+        // 🆕 Valida URL (evita SSRF)
+        if (!url.StartsWith("https://covers.openlibrary.org") && 
+            !url.StartsWith("http://books.google.com") &&
+            !url.StartsWith("https://i.ibb.co"))
+            return BadRequest(new { mensagem = "URL não permitida" });
 
         try
         {
@@ -184,6 +243,7 @@ public class LivroController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpGet("usuario/{usuarioId}/atividades")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetAtividadesPorUsuario(string usuarioId)
     {
         var atividades = await _livroService.GetAtividadesPorUsuarioAsync(usuarioId);
@@ -192,6 +252,7 @@ public class LivroController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("{id}/detalhes-interno")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetDetalhesInterno(string id)
     {
         var detalhes = await _livroService.GetDetalhesInternoAsync(id);

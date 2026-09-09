@@ -13,10 +13,12 @@ namespace BioTek.Api.Controllers;
 public class CatalogoController : ControllerBase
 {
     private readonly ICatalogoService _catalogoService;
+    private readonly ILivroService _livroService;
 
-    public CatalogoController(ICatalogoService catalogoService)
+    public CatalogoController(ICatalogoService catalogoService, ILivroService livroService)
     {
         _catalogoService = catalogoService;
+        _livroService = livroService;
     }
 
     // 🆕 GetUsuarioId melhorado
@@ -293,6 +295,106 @@ public class CatalogoController : ControllerBase
         catch (Exception ex)
         {
             return StatusCode(500, new { mensagem = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Busca livros por título/autor (OpenLibrary + Google Books + Biblioteca)
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("buscar-por-titulo")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> BuscarPorTitulo([FromQuery] string titulo, [FromQuery] string? autor = null)
+    {
+        if (string.IsNullOrWhiteSpace(titulo))
+            return BadRequest(new { mensagem = "Título é obrigatório" });
+
+        if (titulo.Length > 200 || (autor != null && autor.Length > 200))
+            return BadRequest(new { mensagem = "Termo de busca muito longo" });
+
+        try
+        {
+            var resultados = new List<object>();
+            var termo = autor != null ? $"{titulo} {autor}" : titulo;
+
+            // ============ 1. BUSCAR NO OPENLIBRARY ============
+            var openResultados = await _catalogoService.BuscarExternoPorTextoAsync(termo, 5);
+            
+            foreach (var livro in openResultados)
+            {
+                resultados.Add(new
+                {
+                    livro.Id,
+                    livro.Titulo,
+                    livro.Autor,
+                    livro.Imagem,
+                    livro.CodigoBarras,
+                    livro.Descricao,
+                    livro.Generos,
+                    livro.AnoPublicacao,
+                    livro.Editora,
+                    livro.Idioma,
+                    livro.NumeroPaginas,
+                    livro.AvaliacaoMedia,
+                    Fonte = livro.Fonte
+                });
+            }
+
+            // ============ 2. BUSCAR NA BIBLIOTECA (apenas se não achou suficiente) ============
+            if (resultados.Count < 5)
+            {
+                var livrosUsuarios = await _livroService.GetTodosAsync();
+                var tituloLower = titulo.ToLower().Trim();
+                
+                foreach (var livro in livrosUsuarios)
+                {
+                    if (resultados.Count >= 5) break;
+                    
+                    // Usar reflection para acessar propriedades do objeto anônimo
+                    var tipo = livro.GetType();
+                    var propTitulo = tipo.GetProperty("Titulo");
+                    var propAutor = tipo.GetProperty("Autor");
+                    var propImagem = tipo.GetProperty("Imagem");
+                    var propId = tipo.GetProperty("Id");
+                    
+                    var tituloLivro = propTitulo?.GetValue(livro)?.ToString();
+                    
+                    if (tituloLivro != null && tituloLivro.ToLower().Contains(tituloLower))
+                    {
+                        // Verificar se não é duplicata
+                        if (!resultados.Any(r => 
+                            ((dynamic)r).Titulo?.ToString().ToLower() == tituloLivro.ToLower()))
+                        {
+                            resultados.Add(new
+                            {
+                                Id = propId?.GetValue(livro)?.ToString() ?? "",
+                                Titulo = tituloLivro,
+                                Autor = propAutor?.GetValue(livro)?.ToString() ?? "",
+                                Imagem = propImagem?.GetValue(livro)?.ToString(),
+                                CodigoBarras = (string?)null,
+                                Descricao = (string?)null,
+                                Generos = (List<string>?)null,
+                                AnoPublicacao = (int?)null,
+                                Editora = (string?)null,
+                                Idioma = (string?)null,
+                                NumeroPaginas = (int?)null,
+                                AvaliacaoMedia = (double?)null,
+                                Fonte = "Biblioteca"
+                            });
+                        }
+                    }
+                }
+            }
+
+            if (resultados.Count == 0)
+                return NotFound(new { mensagem = "Nenhum livro encontrado" });
+
+            return Ok(resultados);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro ao buscar livro por título: {ex.Message}");
+            return StatusCode(500, new { mensagem = "Erro ao buscar livro" });
         }
     }
 }

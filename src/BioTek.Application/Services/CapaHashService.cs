@@ -264,6 +264,7 @@ public class CapaHashService : ICapaHashService
 
     // ============ BUSCAR ============
 
+
     public async Task<List<object>> BuscarPorHashAsync(string imagemBase64)
     {
         if (string.IsNullOrEmpty(imagemBase64))
@@ -304,20 +305,129 @@ public class CapaHashService : ICapaHashService
             }
         }
 
+        // 🆕 Ordenar por similaridade (maior primeiro) e pegar top N
         var top = resultados
             .OrderByDescending(r => r.Similaridade)
             .Take(LIMITE_RESULTADOS)
             .ToList();
 
-        return top.Select(r => (object)new
+        // 🆕 Buscar dados completos para cada resultado
+        var resultadosCompletos = new List<object>();
+
+        foreach (var r in top)
         {
-            r.Capa.IdLivro,
-            r.Capa.Fonte,
-            r.Capa.Titulo,
-            r.Capa.Autor,
-            r.Capa.ImagemUrl,
-            Similaridade = Math.Round(r.Similaridade * 100, 1)
-        }).ToList();
+            var dadosCompletos = await BuscarDadosCompletosAsync(r.Capa, r.Similaridade);
+            if (dadosCompletos != null)
+                resultadosCompletos.Add(dadosCompletos);
+        }
+
+        return resultadosCompletos;
+    }
+
+    // 🆕 Buscar dados completos do catálogo ou livro
+    private async Task<object?> BuscarDadosCompletosAsync(CapaHash capa, double similaridade)
+    {
+        try
+        {
+            // ============ CATÁLOGO ============
+            if (capa.Fonte == "Catalogo")
+            {
+                var catalogo = await _catalogoRepository.GetByIdAsync(capa.IdLivro);
+                if (catalogo == null)
+                {
+                    // Fallback: usar dados da CapaHash
+                    return new
+                    {
+                        capa.IdLivro,
+                        capa.Fonte,
+                        capa.Titulo,
+                        capa.Autor,
+                        ImagemUrl = capa.ImagemUrl,
+                        Descricao = (string?)null,
+                        Editora = (string?)null,
+                        AnoPublicacao = (int?)null,
+                        Generos = (List<string>?)null,
+                        Idioma = (string?)null,
+                        NumeroPaginas = (int?)null,
+                        CodigoBarras = (string?)null,
+                        AvaliacaoMedia = (double?)null,
+                        Similaridade = Math.Round(similaridade * 100, 1)
+                    };
+                }
+
+                // 🆕 Retorna todos os campos do Catálogo
+                return new
+                {
+                    capa.IdLivro,
+                    capa.Fonte,
+                    catalogo.Titulo,
+                    catalogo.Autor,
+                    ImagemUrl = catalogo.Imagem,
+                    catalogo.Descricao,
+                    catalogo.Editora,
+                    catalogo.AnoPublicacao,
+                    catalogo.Generos,
+                    catalogo.Idioma,
+                    catalogo.NumeroPaginas,
+                    catalogo.CodigoBarras,
+                    catalogo.AvaliacaoMedia,
+                    Similaridade = Math.Round(similaridade * 100, 1)
+                };
+            }
+            
+            // ============ LIVRO ============
+            else if (capa.Fonte == "Livro")
+            {
+                var livro = await _livroRepository.GetByIdAsync(capa.IdLivro);
+                if (livro == null)
+                {
+                    // Fallback: usar dados da CapaHash
+                    return new
+                    {
+                        capa.IdLivro,
+                        capa.Fonte,
+                        capa.Titulo,
+                        capa.Autor,
+                        ImagemUrl = capa.ImagemUrl,
+                        Descricao = (string?)null,
+                        Editora = (string?)null,
+                        AnoPublicacao = (int?)null,
+                        Generos = (List<string>?)null,
+                        Idioma = (string?)null,
+                        NumeroPaginas = (int?)null,
+                        CodigoBarras = (string?)null,
+                        AvaliacaoMedia = (double?)null,
+                        Similaridade = Math.Round(similaridade * 100, 1)
+                    };
+                }
+
+                // 🆕 Retorna campos do Livro (sem AvaliacaoMedia - não existe)
+                return new
+                {
+                    capa.IdLivro,
+                    capa.Fonte,
+                    livro.Titulo,
+                    livro.Autor,
+                    ImagemUrl = livro.Imagem,
+                    livro.Descricao,
+                    livro.Editora,
+                    livro.AnoPublicacao,
+                    livro.Generos,
+                    livro.Idioma,
+                    NumeroPaginas = livro.TotalPaginas,  // 🆕 Mapeado
+                    livro.CodigoBarras,
+                    AvaliacaoMedia = (double?)null,       // 🆕 Não existe no Livro
+                    Similaridade = Math.Round(similaridade * 100, 1)
+                };
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Erro ao buscar dados completos para {capa.IdLivro}");
+            return null;
+        }
     }
 
     // ============ GERAR HASH ============

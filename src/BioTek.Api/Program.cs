@@ -281,6 +281,13 @@ builder.Services.Configure<FirebaseSettings>(options =>
     }
 });
 
+// 🆕 CapaHash Repository
+builder.Services.AddScoped<IRepository<CapaHash>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<CapaHash>(context, "CapaHashes");
+});
+
 builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
@@ -307,6 +314,7 @@ builder.Services.AddHttpClient<IFirebaseNotificationService, FirebaseNotificatio
 builder.Services.AddHostedService<ReadingReminderBackgroundService>();
 builder.Services.AddScoped<IStreakService, StreakService>();
 builder.Services.AddHostedService<StreakNotificationBackgroundService>();
+builder.Services.AddScoped<ICapaHashService, CapaHashService>();
 
 // ==========================================
 // 6. CONTROLLERS + SWAGGER

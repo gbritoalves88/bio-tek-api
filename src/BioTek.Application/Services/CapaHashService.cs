@@ -1,0 +1,399 @@
+using BioTek.Application.Helpers;
+using BioTek.Domain.Entities;
+using BioTek.Domain.Interfaces;
+using Microsoft.Extensions.Logging;
+
+namespace BioTek.Application.Services;
+
+public class CapaHashService : ICapaHashService
+{
+    private readonly IRepository<CapaHash> _capaHashRepository;
+    private readonly IRepository<Catalogo> _catalogoRepository;
+    private readonly IRepository<Livro> _livroRepository;
+    private readonly HttpClient _httpClient;
+    private readonly ILogger<CapaHashService> _logger;
+
+    // 🆕 Configurações
+    private const double SIMILARIDADE_MINIMA = 0.75;
+    private const int DELAY_MS = 200;
+    private const int LIMITE_RESULTADOS = 10;
+    private const int LIMITE_POPULAR = 500;           // Máx por vez
+    private const int PARALELISMO_MAX = 10;           // Downloads paralelos
+    private const int CACHE_MINUTOS = 30;             // Cache de hashes
+
+    // 🆕 Cache em memória dos hashes
+    private static List<CapaHash>? _cacheHashes;
+    private static DateTime _cacheTime = DateTime.MinValue;
+    private static readonly object _cacheLock = new();
+
+    public CapaHashService(
+        IRepository<CapaHash> capaHashRepository,
+        IRepository<Catalogo> catalogoRepository,
+        IRepository<Livro> livroRepository,
+        HttpClient httpClient,
+        ILogger<CapaHashService> logger)
+    {
+        _capaHashRepository = capaHashRepository;
+        _catalogoRepository = catalogoRepository;
+        _livroRepository = livroRepository;
+        _httpClient = httpClient;
+        _logger = logger;
+    }
+
+    // ============ POPULAR ============
+
+    public async Task<object> PopularAsync(int? limiteCatalogo = null, int? limiteLivros = null)
+    {
+        // 🆕 Validar limites
+        if (limiteCatalogo.HasValue && limiteCatalogo.Value > LIMITE_POPULAR)
+            throw new InvalidOperationException($"Limite máximo: {LIMITE_POPULAR} por vez");
+        
+        if (limiteLivros.HasValue && limiteLivros.Value > LIMITE_POPULAR)
+            throw new InvalidOperationException($"Limite máximo: {LIMITE_POPULAR} por vez");
+
+        var totalCatalogo = 0;
+        var totalLivros = 0;
+        var errosCatalogo = new List<string>();
+        var errosLivros = new List<string>();
+
+        // ============ 1. POPULAR DO CATÁLOGO ============
+        var catalogos = await _catalogoRepository.GetAllAsync();
+        
+        if (limiteCatalogo.HasValue)
+            catalogos = catalogos.Take(limiteCatalogo.Value);
+        
+        var catalogosLista = catalogos.ToList();
+        _logger.LogInformation($"Populando {catalogosLista.Count} livros do catálogo...");
+
+        // 🆕 Processar em paralelo com semáforo
+        var semaphore = new SemaphoreSlim(PARALELISMO_MAX);
+        
+        var tarefasCatalogo = catalogosLista.Select(async catalogo =>
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                if (string.IsNullOrEmpty(catalogo.Imagem))
+                {
+                    lock (errosCatalogo)
+                        errosCatalogo.Add($"{catalogo.Titulo}: sem imagem");
+                    return;
+                }
+
+                // 🆕 Verificar se já existe
+                var existente = await _capaHashRepository.FindAsync(c => 
+                    c.IdLivro == catalogo.Id && c.Fonte == "Catalogo");
+                
+                if (existente.Any())
+                    return;
+
+                // 🆕 Baixar imagem
+                var imageBytes = await BaixarImagemAsync(catalogo.Imagem);
+                if (imageBytes == null)
+                {
+                    lock (errosCatalogo)
+                        errosCatalogo.Add($"{catalogo.Titulo}: erro ao baixar imagem");
+                    return;
+                }
+
+                // 🆕 Gerar hash
+                long hash;
+                try
+                {
+                    hash = PerceptualHash.Calcular(imageBytes);
+                }
+                catch (Exception ex)
+                {
+                    lock (errosCatalogo)
+                        errosCatalogo.Add($"{catalogo.Titulo}: erro ao gerar hash - {ex.Message}");
+                    return;
+                }
+
+                // 🆕 Salvar
+                var capaHash = new CapaHash
+                {
+                    IdLivro = catalogo.Id,
+                    Fonte = "Catalogo",
+                    Hash = hash,
+                    Titulo = catalogo.Titulo,
+                    Autor = catalogo.Autor,
+                    ImagemUrl = catalogo.Imagem,
+                    DataCriacao = DateTime.UtcNow
+                };
+
+                await _capaHashRepository.AddAsync(capaHash);
+                
+                lock (errosCatalogo)
+                {
+                    totalCatalogo++;
+                    if (totalCatalogo % 50 == 0)
+                        _logger.LogInformation($"Catálogo: {totalCatalogo} hashes gerados");
+                }
+
+                await Task.Delay(DELAY_MS);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Erro ao processar catálogo: {catalogo.Titulo}");
+                lock (errosCatalogo)
+                    errosCatalogo.Add($"{catalogo.Titulo}: {ex.Message}");
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(tarefasCatalogo);
+
+        // ============ 2. POPULAR DOS LIVROS ============
+        var livros = await _livroRepository.GetAllAsync();
+        
+        if (limiteLivros.HasValue)
+            livros = livros.Take(limiteLivros.Value);
+        
+        var livrosLista = livros.ToList();
+        _logger.LogInformation($"Populando {livrosLista.Count} livros da biblioteca...");
+
+        var tarefasLivros = livrosLista.Select(async livro =>
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                if (string.IsNullOrEmpty(livro.Imagem))
+                {
+                    lock (errosLivros)
+                        errosLivros.Add($"{livro.Titulo}: sem imagem");
+                    return;
+                }
+
+                var existente = await _capaHashRepository.FindAsync(c => 
+                    c.IdLivro == livro.Id && c.Fonte == "Livro");
+                
+                if (existente.Any())
+                    return;
+
+                var imageBytes = await BaixarImagemAsync(livro.Imagem);
+                if (imageBytes == null)
+                {
+                    lock (errosLivros)
+                        errosLivros.Add($"{livro.Titulo}: erro ao baixar imagem");
+                    return;
+                }
+
+                long hash;
+                try
+                {
+                    hash = PerceptualHash.Calcular(imageBytes);
+                }
+                catch (Exception ex)
+                {
+                    lock (errosLivros)
+                        errosLivros.Add($"{livro.Titulo}: erro ao gerar hash - {ex.Message}");
+                    return;
+                }
+
+                var capaHash = new CapaHash
+                {
+                    IdLivro = livro.Id,
+                    Fonte = "Livro",
+                    Hash = hash,
+                    Titulo = livro.Titulo,
+                    Autor = livro.Autor,
+                    ImagemUrl = livro.Imagem,
+                    DataCriacao = DateTime.UtcNow
+                };
+
+                await _capaHashRepository.AddAsync(capaHash);
+                
+                lock (errosLivros)
+                {
+                    totalLivros++;
+                    if (totalLivros % 50 == 0)
+                        _logger.LogInformation($"Livros: {totalLivros} hashes gerados");
+                }
+
+                await Task.Delay(DELAY_MS);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Erro ao processar livro: {livro.Titulo}");
+                lock (errosLivros)
+                    errosLivros.Add($"{livro.Titulo}: {ex.Message}");
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(tarefasLivros);
+
+        // 🆕 Invalidar cache após popular
+        InvalidarCache();
+
+        return new
+        {
+            Mensagem = "População concluída",
+            TotalCatalogo = totalCatalogo,
+            TotalLivros = totalLivros,
+            TotalGeral = totalCatalogo + totalLivros,
+            ErrosCatalogo = errosCatalogo.Count,
+            ErrosLivros = errosLivros.Count,
+            DetalhesErrosCatalogo = errosCatalogo.Take(10),
+            DetalhesErrosLivros = errosLivros.Take(10)
+        };
+    }
+
+    // ============ BUSCAR ============
+
+    public async Task<List<object>> BuscarPorHashAsync(string imagemBase64)
+    {
+        if (string.IsNullOrEmpty(imagemBase64))
+            return new List<object>();
+
+        // 🆕 Validar formato
+        if (!imagemBase64.StartsWith("data:image/"))
+            return new List<object>();
+
+        // 🆕 Gerar hash da imagem capturada
+        var hashCapturado = await GerarHashAsync(imagemBase64);
+        if (hashCapturado == null)
+            return new List<object>();
+
+        // 🆕 Usar cache
+        var todosHashes = await ObterHashesComCacheAsync();
+        
+        if (!todosHashes.Any())
+            return new List<object>();
+
+        // 🆕 Calcular similaridade
+        var resultados = new List<(CapaHash Capa, double Similaridade)>();
+
+        foreach (var capa in todosHashes)
+        {
+            try
+            {
+                var similaridade = PerceptualHash.Similaridade(hashCapturado.Value, capa.Hash);
+                
+                if (similaridade >= SIMILARIDADE_MINIMA)
+                {
+                    resultados.Add((capa, similaridade));
+                }
+            }
+            catch
+            {
+                // Ignorar erros individuais
+            }
+        }
+
+        var top = resultados
+            .OrderByDescending(r => r.Similaridade)
+            .Take(LIMITE_RESULTADOS)
+            .ToList();
+
+        return top.Select(r => (object)new
+        {
+            r.Capa.IdLivro,
+            r.Capa.Fonte,
+            r.Capa.Titulo,
+            r.Capa.Autor,
+            r.Capa.ImagemUrl,
+            Similaridade = Math.Round(r.Similaridade * 100, 1)
+        }).ToList();
+    }
+
+    // ============ GERAR HASH ============
+
+    public async Task<long?> GerarHashAsync(string imagemBase64)
+    {
+        try
+        {
+            var base64Limpo = imagemBase64;
+            if (base64Limpo.Contains(','))
+            {
+                base64Limpo = base64Limpo.Split(',')[1];
+            }
+
+            var imageBytes = Convert.FromBase64String(base64Limpo);
+            return PerceptualHash.Calcular(imageBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao gerar hash da imagem");
+            return null;
+        }
+    }
+
+    // ============ LIMPAR ============
+
+    public async Task<int> LimparTodosAsync()
+    {
+        var todos = await _capaHashRepository.GetAllAsync();
+        var total = 0;
+
+        foreach (var capa in todos)
+        {
+            await _capaHashRepository.DeleteAsync(capa.Id);
+            total++;
+        }
+
+        // 🆕 Invalidar cache
+        InvalidarCache();
+
+        _logger.LogInformation($"Limpeza concluída: {total} hashes removidos");
+        return total;
+    }
+
+    // ============ AUXILIARES ============
+
+    private async Task<byte[]?> BaixarImagemAsync(string url)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var response = await _httpClient.GetAsync(url, cts.Token);
+            
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            return await response.Content.ReadAsByteArrayAsync();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // 🆕 Cache de hashes em memória
+    private async Task<List<CapaHash>> ObterHashesComCacheAsync()
+    {
+        lock (_cacheLock)
+        {
+            if (_cacheHashes != null && DateTime.UtcNow - _cacheTime < TimeSpan.FromMinutes(CACHE_MINUTOS))
+            {
+                return _cacheHashes;
+            }
+        }
+
+        var hashes = (await _capaHashRepository.GetAllAsync()).ToList();
+
+        lock (_cacheLock)
+        {
+            _cacheHashes = hashes;
+            _cacheTime = DateTime.UtcNow;
+        }
+
+        return hashes;
+    }
+
+    // 🆕 Invalidar cache
+    private void InvalidarCache()
+    {
+        lock (_cacheLock)
+        {
+            _cacheHashes = null;
+            _cacheTime = DateTime.MinValue;
+        }
+    }
+}

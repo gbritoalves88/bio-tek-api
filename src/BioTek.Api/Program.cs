@@ -315,7 +315,11 @@ builder.Services.AddHostedService<ReadingReminderBackgroundService>();
 builder.Services.AddScoped<IStreakService, StreakService>();
 builder.Services.AddHostedService<StreakNotificationBackgroundService>();
 builder.Services.AddScoped<ICapaHashService, CapaHashService>();
+builder.Services.AddScoped<ICapaHashService, CapaHashService>();
 
+// 🆕 Manutenção Noturna (Singleton + HostedService)
+builder.Services.AddSingleton<ManutencaoNoturnaBackgroundService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ManutencaoNoturnaBackgroundService>());
 // ==========================================
 // 6. CONTROLLERS + SWAGGER
 // ==========================================

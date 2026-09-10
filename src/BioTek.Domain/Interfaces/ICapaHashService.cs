@@ -24,4 +24,6 @@ public interface ICapaHashService
     /// Limpa todos os hashes (para repopular)
     /// </summary>
     Task<int> LimparTodosAsync();
+
+    Task<int> ContarPendentesAsync(string fonte);
 }

@@ -197,7 +197,18 @@ public class CatalogoService : ICatalogoService
         var livros = await BuscarExternoPorTextoAsync(termo, limite);
         resultado.TotalProcessados = livros.Count;
 
-        var todos = await GetAllAsync();
+        // 🆕 Carregar catálogo UMA VEZ
+        var todos = (await GetAllAsync()).ToList();
+        
+        var isbnsExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
+            .Select(c => c.CodigoBarras!)
+            .ToHashSet();
+        
+        var titulosAutoresExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
+            .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
+            .ToHashSet();
 
         foreach (var livro in livros)
         {
@@ -210,9 +221,20 @@ public class CatalogoService : ICatalogoService
 
             try
             {
-                var existente = todos.FirstOrDefault(c => c.CodigoBarras == livro.CodigoBarras);
+                // 🆕 Verificar duplicata por ISBN OU título+autor
+                var chave = $"{livro.Titulo?.ToLower().Trim()}|{livro.Autor?.ToLower().Trim()}";
+                var jaExiste = false;
                 
-                if (existente != null)
+                if (!string.IsNullOrEmpty(livro.CodigoBarras) && isbnsExistentes.Contains(livro.CodigoBarras))
+                {
+                    jaExiste = true;
+                }
+                else if (titulosAutoresExistentes.Contains(chave))
+                {
+                    jaExiste = true;
+                }
+                
+                if (jaExiste)
                 {
                     item.Status = "JaExiste";
                     resultado.JaExistentes++;
@@ -222,6 +244,11 @@ public class CatalogoService : ICatalogoService
                     await CreateAsync(livro);
                     item.Status = "Importado";
                     resultado.Importados++;
+                    
+                    // 🆕 Adicionar aos sets
+                    if (!string.IsNullOrEmpty(livro.CodigoBarras))
+                        isbnsExistentes.Add(livro.CodigoBarras);
+                    titulosAutoresExistentes.Add(chave);
                 }
             }
             catch (Exception ex)
@@ -516,6 +543,20 @@ public class CatalogoService : ICatalogoService
         var termosProcessados = 0;
         var erros = new List<object>();
 
+        // 🆕 Carregar catálogo UMA VEZ
+        var todos = (await GetAllAsync()).ToList();
+        
+        // 🆕 Sets para busca rápida (O(1))
+        var isbnsExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
+            .Select(c => c.CodigoBarras!)
+            .ToHashSet();
+        
+        var titulosAutoresExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
+            .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
+            .ToHashSet();
+
         foreach (var termo in termos)
         {
             for (int pagina = 0; pagina < paginasPorTermo; pagina++)
@@ -532,15 +573,30 @@ public class CatalogoService : ICatalogoService
                         
                         totalProcessados++;
                         
-                        var todos = await GetAllAsync();
-                        var existe = todos.Any(c => c.CodigoBarras == livro.CodigoBarras);
+                        // 🆕 Verificar duplicata por ISBN OU título+autor
+                        var chave = $"{livro.Titulo.ToLower().Trim()}|{livro.Autor.ToLower().Trim()}";
+                        var jaExiste = false;
                         
-                        if (!existe && !string.IsNullOrEmpty(livro.Titulo))
+                        if (!string.IsNullOrEmpty(livro.CodigoBarras) && isbnsExistentes.Contains(livro.CodigoBarras))
+                        {
+                            jaExiste = true;
+                        }
+                        else if (titulosAutoresExistentes.Contains(chave))
+                        {
+                            jaExiste = true;
+                        }
+                        
+                        if (!jaExiste)
                         {
                             await CreateAsync(livro);
                             totalImportados++;
+                            
+                            // 🆕 Adicionar aos sets para evitar duplicata no mesmo lote
+                            if (!string.IsNullOrEmpty(livro.CodigoBarras))
+                                isbnsExistentes.Add(livro.CodigoBarras);
+                            titulosAutoresExistentes.Add(chave);
                         }
-                        else if (existe)
+                        else
                         {
                             totalJaExistentes++;
                         }
@@ -648,6 +704,19 @@ public class CatalogoService : ICatalogoService
         var totalJaExistentes = 0;
         var resultadosPorLetra = new List<object>();
 
+        // 🆕 Carregar catálogo UMA VEZ
+        var todos = (await GetAllAsync()).ToList();
+        
+        var isbnsExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
+            .Select(c => c.CodigoBarras!)
+            .ToHashSet();
+        
+        var titulosAutoresExistentes = todos
+            .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
+            .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
+            .ToHashSet();
+
         foreach (var letra in letras)
         {
             var importadosNaLetra = 0;
@@ -701,9 +770,20 @@ public class CatalogoService : ICatalogoService
                     if (string.IsNullOrEmpty(titulo) || string.IsNullOrEmpty(autor))
                         continue;
 
-                    var existe = (await _catalogoRepository.FindAsync(c => c.CodigoBarras == isbn)).Any();
+                    // 🆕 Verificar duplicata por ISBN OU título+autor
+                    var chave = $"{titulo.ToLower().Trim()}|{autor.ToLower().Trim()}";
+                    var jaExiste = false;
                     
-                    if (!existe)
+                    if (!string.IsNullOrEmpty(isbn) && isbnsExistentes.Contains(isbn))
+                    {
+                        jaExiste = true;
+                    }
+                    else if (titulosAutoresExistentes.Contains(chave))
+                    {
+                        jaExiste = true;
+                    }
+                    
+                    if (!jaExiste)
                     {
                         var novoCatalogo = new Catalogo
                         {
@@ -719,6 +799,11 @@ public class CatalogoService : ICatalogoService
                         
                         await _catalogoRepository.AddAsync(novoCatalogo);
                         importadosNaLetra++;
+                        
+                        // 🆕 Adicionar aos sets
+                        if (!string.IsNullOrEmpty(isbn))
+                            isbnsExistentes.Add(isbn);
+                        titulosAutoresExistentes.Add(chave);
                     }
                     else
                     {

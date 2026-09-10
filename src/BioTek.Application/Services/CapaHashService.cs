@@ -57,18 +57,32 @@ public class CapaHashService : ICapaHashService
         var errosLivros = new List<string>();
 
         // ============ 1. POPULAR DO CATÁLOGO ============
-        var catalogos = await _catalogoRepository.GetAllAsync();
         
-        if (limiteCatalogo.HasValue)
-            catalogos = catalogos.Take(limiteCatalogo.Value);
+        // 🆕 Carregar IDs já processados (UMA query)
+        var idsCatalogoProcessados = (await _capaHashRepository.GetAllAsync())
+            .Where(c => c.Fonte == "Catalogo")
+            .Select(c => c.IdLivro)
+            .ToHashSet();
         
-        var catalogosLista = catalogos.ToList();
-        _logger.LogInformation($"Populando {catalogosLista.Count} livros do catálogo...");
+        _logger.LogInformation($"📊 Catálogo: {idsCatalogoProcessados.Count} hashes já processados");
 
-        // 🆕 Processar em paralelo com semáforo
+        // 🆕 Buscar todos os catálogos
+        var todosCatalogos = (await _catalogoRepository.GetAllAsync())
+            .Where(c => !idsCatalogoProcessados.Contains(c.Id))  // Filtrar já processados
+            .ToList();
+        
+        _logger.LogInformation($"📊 Catálogo: {todosCatalogos.Count} livros para processar");
+        
+        // 🆕 Aplicar limite (pega os PRIMEIROS N não processados)
+        if (limiteCatalogo.HasValue)
+            todosCatalogos = todosCatalogos.Take(limiteCatalogo.Value).ToList();
+        
+        _logger.LogInformation($"📊 Catálogo: processando {todosCatalogos.Count} livros neste lote");
+
+        // 🆕 Processar em paralelo
         var semaphore = new SemaphoreSlim(PARALELISMO_MAX);
         
-        var tarefasCatalogo = catalogosLista.Select(async catalogo =>
+        var tarefasCatalogo = todosCatalogos.Select(async catalogo =>
         {
             await semaphore.WaitAsync();
             try
@@ -80,14 +94,6 @@ public class CapaHashService : ICapaHashService
                     return;
                 }
 
-                // 🆕 Verificar se já existe
-                var existente = await _capaHashRepository.FindAsync(c => 
-                    c.IdLivro == catalogo.Id && c.Fonte == "Catalogo");
-                
-                if (existente.Any())
-                    return;
-
-                // 🆕 Baixar imagem
                 var imageBytes = await BaixarImagemAsync(catalogo.Imagem);
                 if (imageBytes == null)
                 {
@@ -96,7 +102,6 @@ public class CapaHashService : ICapaHashService
                     return;
                 }
 
-                // 🆕 Gerar hash
                 long hash;
                 try
                 {
@@ -109,7 +114,6 @@ public class CapaHashService : ICapaHashService
                     return;
                 }
 
-                // 🆕 Salvar
                 var capaHash = new CapaHash
                 {
                     IdLivro = catalogo.Id,
@@ -147,15 +151,29 @@ public class CapaHashService : ICapaHashService
         await Task.WhenAll(tarefasCatalogo);
 
         // ============ 2. POPULAR DOS LIVROS ============
-        var livros = await _livroRepository.GetAllAsync();
         
-        if (limiteLivros.HasValue)
-            livros = livros.Take(limiteLivros.Value);
+        // 🆕 Carregar IDs já processados
+        var idsLivrosProcessados = (await _capaHashRepository.GetAllAsync())
+            .Where(c => c.Fonte == "Livro")
+            .Select(c => c.IdLivro)
+            .ToHashSet();
         
-        var livrosLista = livros.ToList();
-        _logger.LogInformation($"Populando {livrosLista.Count} livros da biblioteca...");
+        _logger.LogInformation($"📊 Livros: {idsLivrosProcessados.Count} hashes já processados");
 
-        var tarefasLivros = livrosLista.Select(async livro =>
+        // 🆕 Buscar todos os livros
+        var todosLivros = (await _livroRepository.GetAllAsync())
+            .Where(l => !idsLivrosProcessados.Contains(l.Id))  // Filtrar já processados
+            .ToList();
+        
+        _logger.LogInformation($"📊 Livros: {todosLivros.Count} livros para processar");
+        
+        // 🆕 Aplicar limite
+        if (limiteLivros.HasValue)
+            todosLivros = todosLivros.Take(limiteLivros.Value).ToList();
+        
+        _logger.LogInformation($"📊 Livros: processando {todosLivros.Count} livros neste lote");
+
+        var tarefasLivros = todosLivros.Select(async livro =>
         {
             await semaphore.WaitAsync();
             try
@@ -166,12 +184,6 @@ public class CapaHashService : ICapaHashService
                         errosLivros.Add($"{livro.Titulo}: sem imagem");
                     return;
                 }
-
-                var existente = await _capaHashRepository.FindAsync(c => 
-                    c.IdLivro == livro.Id && c.Fonte == "Livro");
-                
-                if (existente.Any())
-                    return;
 
                 var imageBytes = await BaixarImagemAsync(livro.Imagem);
                 if (imageBytes == null)
@@ -240,6 +252,11 @@ public class CapaHashService : ICapaHashService
             TotalGeral = totalCatalogo + totalLivros,
             ErrosCatalogo = errosCatalogo.Count,
             ErrosLivros = errosLivros.Count,
+            // 🆕 Info sobre o que falta
+            CatalogoProcessado = idsCatalogoProcessados.Count + totalCatalogo,
+            CatalogoTotal = idsCatalogoProcessados.Count + todosCatalogos.Count,
+            LivrosProcessado = idsLivrosProcessados.Count + totalLivros,
+            LivrosTotal = idsLivrosProcessados.Count + todosLivros.Count,
             DetalhesErrosCatalogo = errosCatalogo.Take(10),
             DetalhesErrosLivros = errosLivros.Take(10)
         };

@@ -40,6 +40,37 @@ public class CapaHashService : ICapaHashService
         _logger = logger;
     }
 
+    public async Task<int> ContarPendentesAsync(string fonte)
+    {
+        if (fonte == "Catalogo")
+        {
+            var idsProcessados = (await _capaHashRepository.GetAllAsync())
+                .Where(c => c.Fonte == "Catalogo")
+                .Select(c => c.IdLivro)
+                .ToHashSet();
+
+            var total = (await _catalogoRepository.GetAllAsync())
+                .Count(c => !idsProcessados.Contains(c.Id));
+
+            return total;
+        }
+        else if (fonte == "Livro")
+        {
+            var idsProcessados = (await _capaHashRepository.GetAllAsync())
+                .Where(c => c.Fonte == "Livro")
+                .Select(c => c.IdLivro)
+                .ToHashSet();
+
+            var total = (await _livroRepository.GetAllAsync())
+                .Count(l => !idsProcessados.Contains(l.Id));
+
+            return total;
+        }
+
+        return 0;
+    }
+
+
     // ============ POPULAR ============
 
     public async Task<object> PopularAsync(int? limiteCatalogo = null, int? limiteLivros = null)

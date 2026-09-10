@@ -6,6 +6,7 @@ using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using BioTek.Application.Services;
 
 namespace BioTek.Api.Controllers;
 
@@ -23,12 +24,14 @@ public class AdminController : ControllerBase
     private readonly IRepository<Seguidor> _seguidorRepository;
     private readonly IRepository<Notificacao> _notificacaoRepository;
     private readonly IRepository<Acesso> _acessoRepository;
+    private readonly IServiceProvider _serviceProvider;
 
     // 🆕 Cache do dashboard
     private static object? _cacheDashboard;
     private static DateTime _cacheDashboardTime = DateTime.MinValue;
     private static readonly object _cacheLock = new();
     private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(5);
+    private readonly ILogger<AdminController> _logger;
 
     // 🆕 Emails para ignorar nas estatísticas (admins/testes)
     private static readonly string[] EmailsIgnorados = new[]
@@ -45,7 +48,9 @@ public class AdminController : ControllerBase
         IRepository<Curtida> curtidaRepository,
         IRepository<Seguidor> seguidorRepository,
         IRepository<Notificacao> notificacaoRepository,
-        IRepository<Acesso> acessoRepository)
+        IRepository<Acesso> acessoRepository,
+        IServiceProvider serviceProvider,
+        ILogger<AdminController> logger)
     {
         _comentarioRepository = comentarioRepository;
         _usuarioRepository = usuarioRepository;
@@ -55,6 +60,8 @@ public class AdminController : ControllerBase
         _seguidorRepository = seguidorRepository;
         _notificacaoRepository = notificacaoRepository;
         _acessoRepository = acessoRepository;
+         _serviceProvider = serviceProvider;
+         _logger = logger;  // 🆕 Adicionar
     }
 
     // 🆕 GetUsuarioId melhorado
@@ -566,5 +573,39 @@ public class AdminController : ControllerBase
             _cacheDashboard = null;
             _cacheDashboardTime = DateTime.MinValue;
         }
+    }
+
+    [Authorize]
+    [HttpPost("manutencao/executar")]
+    [EnableRateLimiting("AdminPolicy")]
+    public async Task<IActionResult> ExecutarManutencao()
+    {
+        _logger.LogInformation("🔧 Endpoint manutenção chamado");
+
+        if (!await IsAdmin()) 
+        {
+            _logger.LogWarning("❌ Não é admin");
+            return Forbid();
+        }
+
+        _logger.LogInformation("🔧 Manutenção manual solicitada por admin");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var manutencao = scope.ServiceProvider
+                    .GetRequiredService<ManutencaoNoturnaBackgroundService>();
+                
+                await manutencao.ExecutarManualmenteAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro na manutenção manual");
+            }
+        });
+
+        return Ok(new { mensagem = "Manutenção iniciada em background" });
     }
 }

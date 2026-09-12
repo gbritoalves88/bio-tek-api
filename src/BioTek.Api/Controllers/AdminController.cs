@@ -37,7 +37,8 @@ public class AdminController : ControllerBase
     private static readonly string[] EmailsIgnorados = new[]
     {
         "g.britoalves888@gmail.com",
-        "xxxbielxxx@gmail.com"
+        "xxxbielxxx@gmail.com",
+        "bliteca888@gmail.com"
     };
 
     public AdminController(

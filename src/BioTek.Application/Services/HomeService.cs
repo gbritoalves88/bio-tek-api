@@ -19,7 +19,7 @@ public class HomeService : IHomeService
     private static string? _cacheUsuarioId;
     private static DateTime _cacheTime = DateTime.MinValue;
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(10);
 
     public HomeService(
         IRepository<Livro> livroRepository,

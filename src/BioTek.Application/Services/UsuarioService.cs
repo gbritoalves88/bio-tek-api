@@ -14,7 +14,7 @@ public class UsuarioService : IUsuarioService
     // 🆕 Cache do perfil completo
     private static readonly Dictionary<string, (object Data, DateTime Time)> _cachePerfil = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
 
     public UsuarioService(
         IRepository<Usuario> usuarioRepository,

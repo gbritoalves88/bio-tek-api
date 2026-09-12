@@ -86,7 +86,7 @@ public class ComunidadeService : IComunidadeService
         var avaliacoes = await tarefas.Avaliacoes;
         var livros = await tarefas.Livros;
 
-        // ============ 2. BUSCAR DADOS RELACIONADOS ============
+        // ============ 2. COLETAR IDs ============
         var idsUsuarios = new HashSet<string>();
         idsUsuarios.UnionWith(atividadesLeitura.Select(c => c.IdUsuario).Where(id => id != null)!);
         idsUsuarios.UnionWith(avaliacoes.Select(a => a.IdUsuario).Where(id => id != null)!);
@@ -102,26 +102,31 @@ public class ComunidadeService : IComunidadeService
         idsAtividades.UnionWith(avaliacoes.Select(a => a.Id));
         idsAtividades.UnionWith(livros.Select(l => l.Id));
 
+        // ============ 3. BUSCAR COMENTÁRIOS PRIMEIRO (PARA INCLUIR COMENTADORES) ============
+        var comentariosLivros = (await _comentarioRepository.FindAsync(c => 
+            idsLivros.Contains(c.IdLivro) && 
+            c.Origem != "Atividade")).ToList();
+
+        // 🆕 Incluir IDs dos usuários que comentaram no idsUsuarios
+        idsUsuarios.UnionWith(comentariosLivros
+            .Select(c => c.IdUsuario)
+            .Where(id => !string.IsNullOrEmpty(id))!);
+
+        // ============ 4. BUSCAR DADOS RELACIONADOS EM PARALELO ============
         var tarefasDados = new
         {
             Usuarios = _usuarioRepository.FindAsync(u => idsUsuarios.Contains(u.Id)),
             LivrosRelacionados = _livroRepository.FindAsync(l => idsLivros.Contains(l.Id)),
-            ComentariosLivros = _comentarioRepository.FindAsync(c => 
-                idsLivros.Contains(c.IdLivro) && 
-                c.Origem != "Atividade"),
-            Curtidas = _curtidaRepository.FindAsync(c => 
-                idsAtividades.Contains(c.IdAtividade))
+            Curtidas = _curtidaRepository.FindAsync(c => idsAtividades.Contains(c.IdAtividade))
         };
 
-        await Task.WhenAll(tarefasDados.Usuarios, tarefasDados.LivrosRelacionados, 
-            tarefasDados.ComentariosLivros, tarefasDados.Curtidas);
+        await Task.WhenAll(tarefasDados.Usuarios, tarefasDados.LivrosRelacionados, tarefasDados.Curtidas);
 
         var usuarios = await tarefasDados.Usuarios;
         var livrosRelacionados = await tarefasDados.LivrosRelacionados;
-        var comentariosLivros = await tarefasDados.ComentariosLivros;
         var curtidas = await tarefasDados.Curtidas;
 
-        // ============ 3. CRIAR MAPS PARA ACESSO RÁPIDO ============
+        // ============ 5. CRIAR MAPS PARA ACESSO RÁPIDO ============
         var usuarioMap = usuarios.ToDictionary(u => u.Id, u => u);
         var livroMap = livrosRelacionados.ToDictionary(l => l.Id, l => l);
         var seguindoIds = new HashSet<string>(seguindo.Select(s => s.IdUsuario));
@@ -134,7 +139,7 @@ public class ComunidadeService : IComunidadeService
             .GroupBy(c => c.IdLivro)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // ============ 4. PROCESSAR ATIVIDADES DE LEITURA ============
+        // ============ 6. PROCESSAR ATIVIDADES DE LEITURA ============
         var atividadesLeituraLimitadas = atividadesLeitura
             .OrderByDescending(c => c.DataCriacao)
             .Take(limite / 3)
@@ -168,7 +173,7 @@ public class ComunidadeService : IComunidadeService
             });
         }
 
-        // ============ 5. PROCESSAR AVALIAÇÕES ============
+        // ============ 7. PROCESSAR AVALIAÇÕES ============
         var avaliacoesLimitadas = avaliacoes
             .OrderByDescending(a => a.DataAtualizacao ?? a.DataCriacao)
             .Take(limite / 3)
@@ -189,7 +194,7 @@ public class ComunidadeService : IComunidadeService
                     c.Id,
                     c.Comentario,
                     c.DataCriacao,
-                    Usuario = usuarioMap.TryGetValue(c.IdUsuario, out var cu) ? new
+                    Usuario = !string.IsNullOrEmpty(c.IdUsuario) && usuarioMap.TryGetValue(c.IdUsuario, out var cu) ? new
                     {
                         cu.Id,
                         cu.Nickname
@@ -212,7 +217,7 @@ public class ComunidadeService : IComunidadeService
             });
         }
 
-        // ============ 6. PROCESSAR LIVROS ============
+        // ============ 8. PROCESSAR LIVROS ============
         var livrosComAtividade = new HashSet<string>(
             atividadesLeitura.Select(c => c.IdLivro)
         );

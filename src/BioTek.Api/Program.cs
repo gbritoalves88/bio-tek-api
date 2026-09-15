@@ -332,7 +332,10 @@ builder.Services.AddCors(options =>
                 "http://localhost:4200",
                 "https://biotek-three.vercel.app",
                 "https://bliteca-three.vercel.app",
-                "https://www.bliteca.com.br"
+                "https://www.bliteca.com.br",
+                "https://localhost",           // 🆕 Capacitor Android
+                "capacitor://localhost",        // 🆕 Capacitor iOS
+                "http://localhost"              // 🆕 Alguns casos
             )
             .AllowAnyHeader()
             .AllowAnyMethod()

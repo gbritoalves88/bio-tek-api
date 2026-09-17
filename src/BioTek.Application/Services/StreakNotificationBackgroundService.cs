@@ -93,6 +93,7 @@ public class StreakNotificationBackgroundService : BackgroundService
         var usuarioRepository = scope.ServiceProvider.GetRequiredService<IRepository<Usuario>>();
         var firebaseService = scope.ServiceProvider.GetRequiredService<IFirebaseNotificationService>();
         var notificacaoRepository = scope.ServiceProvider.GetRequiredService<IRepository<NotificationSubscription>>();
+        var notificacaoInternaRepo = scope.ServiceProvider.GetRequiredService<IRepository<Notificacao>>(); // 🆕
 
         var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
         var hoje = agoraBrasilia.Date;
@@ -109,9 +110,7 @@ public class StreakNotificationBackgroundService : BackgroundService
             try
             {
                 if (streak.UltimaDataAtividade?.Date == hoje)
-                {
                     continue;
-                }
 
                 var usuario = await usuarioRepository.GetByIdAsync(streak.IdUsuario);
                 if (usuario == null || !usuario.Ativo)
@@ -137,6 +136,18 @@ public class StreakNotificationBackgroundService : BackgroundService
                 };
 
                 await firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
+
+                // 🆕 Cria notificação interna
+                await notificacaoInternaRepo.AddAsync(new Notificacao
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    IdUsuario = streak.IdUsuario,
+                    Tipo = "streak",
+                    Mensagem = corpo,
+                    DataCriacao = DateTime.UtcNow,
+                    Lida = false
+                });
+
                 enviados++;
 
                 _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
@@ -147,7 +158,6 @@ public class StreakNotificationBackgroundService : BackgroundService
             }
         }
 
-        // 🆕 Registra apenas a execução (sem lista de usuários)
         await RegistrarExecucao("StreakNotification", hoje, agoraBrasilia);
 
         _logger.LogInformation($"Total de lembretes de streak enviados: {enviados}");

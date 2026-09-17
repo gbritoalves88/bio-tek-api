@@ -153,6 +153,17 @@ namespace BioTek.Services
                                 badge = "/assets/icons/icon-96x96.png",
                                 click_action = url ?? "/"
                             }
+                        },
+                        android = new
+                        {
+                            priority = "high",
+                            notification = new
+                            {
+                                icon = "ic_launcher",
+                                color = "#DB7C00",
+                                sound = "default",
+                                click_action = "FCM_PLUGIN_ACTIVITY"
+                            }
                         }
                     }
                 };
@@ -243,6 +254,17 @@ namespace BioTek.Services
                         fcm_options = new
                         {
                             link = url ?? "/"
+                        }
+                    },
+                    android = new
+                    {
+                        priority = "high",
+                        notification = new
+                        {
+                            icon = "ic_launcher",
+                            color = "#DB7C00",
+                            sound = "default",
+                            click_action = "FCM_PLUGIN_ACTIVITY"
                         }
                     }
                 }

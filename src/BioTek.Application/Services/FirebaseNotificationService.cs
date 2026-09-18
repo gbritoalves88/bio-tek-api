@@ -24,7 +24,7 @@ namespace BioTek.Services
         private string _accessToken;
         private DateTime _tokenExpiration;
 
-        private const int MAX_TOKENS_POR_LOTE = 500; // 🆕 Limite do Firebase
+        private const int MAX_TOKENS_POR_LOTE = 500;
 
         public FirebaseNotificationService(
             HttpClient httpClient,
@@ -162,7 +162,8 @@ namespace BioTek.Services
                                 icon = "ic_launcher",
                                 color = "#DB7C00",
                                 sound = "default",
-                                click_action = "FCM_PLUGIN_ACTIVITY"
+                                click_action = "FCM_PLUGIN_ACTIVITY",
+                                channel_id = "default"
                             }
                         }
                     }
@@ -186,13 +187,12 @@ namespace BioTek.Services
                 else
                 {
                     var error = await response.Content.ReadAsStringAsync();
-                    
-                    // 🆕 Verificar se token é inválido
+
                     if (error.Contains("UNREGISTERED") || error.Contains("INVALID_ARGUMENT"))
                     {
                         await DesativarTokenAsync(token);
                     }
-                    
+
                     _logger.LogError($"Erro ao enviar notificação: {error}");
                     return false;
                 }
@@ -204,7 +204,7 @@ namespace BioTek.Services
             }
         }
 
-       // Enviar para múltiplos tokens (paralelo)
+        // Enviar para múltiplos tokens (paralelo)
         public async Task<bool> SendMulticastAsync(
             List<string> tokens,
             string title,
@@ -215,19 +215,16 @@ namespace BioTek.Services
             if (tokens == null || tokens.Count == 0)
                 return false;
 
-            var sucesso = true;
-            
-            // Enviar em paralelo
-            var tarefas = tokens.Select(token => 
+            var tarefas = tokens.Select(token =>
                 SendNotificationAsync(token, title, body, url, data)
             ).ToArray();
-            
+
             var resultados = await Task.WhenAll(tarefas);
-            
+
             return resultados.All(r => r);
         }
 
-        // 🆕 Enviar lote usando multicast real do Firebase
+        // Enviar lote usando multicast real do Firebase
         private async Task<bool> EnviarLoteMulticastAsync(
             List<string> tokens,
             string title,
@@ -242,7 +239,7 @@ namespace BioTek.Services
             {
                 message = new
                 {
-                    tokens = tokens.ToArray(), // 🆕 Multicast real
+                    tokens = tokens.ToArray(),
                     notification = new
                     {
                         title = title,
@@ -264,7 +261,8 @@ namespace BioTek.Services
                             icon = "ic_launcher",
                             color = "#DB7C00",
                             sound = "default",
-                            click_action = "FCM_PLUGIN_ACTIVITY"
+                            click_action = "FCM_PLUGIN_ACTIVITY",
+                            channel_id = "default"
                         }
                     }
                 }
@@ -284,10 +282,7 @@ namespace BioTek.Services
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadAsStringAsync();
-                
-                // 🆕 Processar resposta para verificar tokens inválidos
                 await ProcessarRespostaMulticast(result);
-                
                 return true;
             }
             else
@@ -298,7 +293,7 @@ namespace BioTek.Services
             }
         }
 
-        // 🆕 Processar resposta e desativar tokens inválidos
+        // Processar resposta e desativar tokens inválidos
         private async Task ProcessarRespostaMulticast(string respostaJson)
         {
             try
@@ -307,8 +302,6 @@ namespace BioTek.Services
 
                 if (resposta.TryGetProperty("responses", out var responses))
                 {
-                    var tokensParaDesativar = new List<string>();
-
                     foreach (var resp in responses.EnumerateArray())
                     {
                         if (resp.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
@@ -316,14 +309,11 @@ namespace BioTek.Services
                             if (resp.TryGetProperty("error", out var error))
                             {
                                 var errorMessage = error.ToString();
-                                
-                                // Token inválido ou não registrado
-                                if (errorMessage.Contains("UNREGISTERED") || 
+
+                                if (errorMessage.Contains("UNREGISTERED") ||
                                     errorMessage.Contains("INVALID_ARGUMENT") ||
                                     errorMessage.Contains("NOT_FOUND"))
                                 {
-                                    // Não temos o token diretamente na resposta
-                                    // O Firebase não retorna qual token falhou no multicast
                                     _logger.LogWarning($"Token inválido detectado: {errorMessage}");
                                 }
                             }
@@ -337,13 +327,13 @@ namespace BioTek.Services
             }
         }
 
-        // 🆕 Desativar token inválido
+        // Desativar token inválido
         private async Task DesativarTokenAsync(string token)
         {
             try
             {
                 var subscriptions = await _subscriptionRepository.FindAsync(s => s.Token == token);
-                
+
                 foreach (var sub in subscriptions)
                 {
                     sub.IsActive = false;

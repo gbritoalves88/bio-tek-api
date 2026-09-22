@@ -23,17 +23,17 @@ public class AuthController : ControllerBase
     private readonly TokenService _tokenService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
-    
+
     private const string CONTA_DESATIVADA_MENSAGEM = "Conta desativada. Entre em contato com os administradores pelo email: g.britoalves888@gmail.com";
 
     public AuthController(
-        MongoDbContext context, 
-        TokenService tokenService, 
+        MongoDbContext context,
+        TokenService tokenService,
         IConfiguration configuration,
         ILogger<AuthController> logger)
     {
         _usuarioRepository = new MongoRepository<Usuario>(context, "Usuarios");
-        _acessoRepository = new MongoRepository<Acesso>(context, "Acessos"); 
+        _acessoRepository = new MongoRepository<Acesso>(context, "Acessos");
         _tokenService = tokenService;
         _configuration = configuration;
         _logger = logger;
@@ -50,7 +50,6 @@ public class AuthController : ControllerBase
         if (request == null || string.IsNullOrEmpty(request.IdToken))
             return BadRequest(new { mensagem = "Token do Google é obrigatório" });
 
-        // 🆕 Validar tamanho do token
         if (request.IdToken.Length > 10000)
             return BadRequest(new { mensagem = "Token inválido" });
 
@@ -64,7 +63,6 @@ public class AuthController : ControllerBase
             var nome = payload.Name;
             var email = payload.Email;
 
-            // 🆕 Validar email
             if (string.IsNullOrEmpty(email))
                 return BadRequest(new { mensagem = "Email não fornecido pelo Google" });
 
@@ -77,7 +75,7 @@ public class AuthController : ControllerBase
                 novoUsuario = true;
                 usuario = new Usuario
                 {
-                    Id = Guid.NewGuid().ToString(), // 🆕 Garantir ID
+                    Id = Guid.NewGuid().ToString(),
                     IdGoogle = googleId,
                     Nome = nome,
                     Email = email,
@@ -91,7 +89,6 @@ public class AuthController : ControllerBase
             }
             else
             {
-                // 🔴 Verificar conta desativada ANTES de atualizar
                 if (usuario.Ativo == false)
                 {
                     _logger.LogWarning($"Tentativa de login com conta desativada: {email}");
@@ -101,40 +98,35 @@ public class AuthController : ControllerBase
                 usuario.Nome = nome;
                 usuario.IdGoogle ??= googleId;
                 usuario.DataAtualizacao = DateTime.UtcNow;
-                // 🆕 Não atualizar RefreshToken ainda, fazer no final
             }
 
-            // 🆕 Gerar tokens
             var token = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "google");
             var refreshToken = GerarRefreshTokenSeguro();
 
-            // 🆕 Atualizar usuário uma única vez
             usuario.RefreshToken = refreshToken;
             usuario.DataAtualizacao = DateTime.UtcNow;
             await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
 
-            // 🆕 Registrar acesso em background (não bloqueia)
             _ = Task.Run(() => RegistrarAcessoAsync(usuario.Id));
 
-            // 🆕 Retornar resposta sem RefreshToken no corpo (apenas no header)
-            Response.Headers["X-Refresh-Token"] = refreshToken;
-
+            // 🆕 refreshToken agora vai no body (antes só no header)
             return Ok(new
             {
                 token,
+                refreshToken,
                 novoUsuario = novoUsuario || !usuario.AceitouTermos,
                 precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
                 {
-                    usuario.Id, 
-                    usuario.Nome, 
-                    usuario.Email, 
+                    usuario.Id,
+                    usuario.Nome,
+                    usuario.Email,
                     usuario.Nickname,
-                    usuario.Descricao, 
-                    usuario.Avatar, 
+                    usuario.Descricao,
+                    usuario.Avatar,
                     usuario.Tema,
-                    usuario.Adm, 
-                    usuario.Ativo, 
+                    usuario.Adm,
+                    usuario.Ativo,
                     usuario.AceitouTermos
                 }
             });
@@ -162,14 +154,13 @@ public class AuthController : ControllerBase
         if (request == null || string.IsNullOrEmpty(request.Code))
             return BadRequest(new { mensagem = "Código de autorização é obrigatório" });
 
-        // 🆕 Validar tamanho do código
         if (request.Code.Length > 5000)
             return BadRequest(new { mensagem = "Código inválido" });
 
         try
         {
             using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(10); // 🆕 Timeout
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
 
             var redirectUri = request.RedirectUri ?? _configuration["Authentication:Google:RedirectUri"]!;
 
@@ -248,24 +239,24 @@ public class AuthController : ControllerBase
 
             _ = Task.Run(() => RegistrarAcessoAsync(usuario.Id));
 
-            Response.Headers["X-Refresh-Token"] = refreshToken;
-
+            // 🆕 refreshToken agora vai no body (antes só no header)
             return Ok(new
             {
                 token,
+                refreshToken,
                 novoUsuario = novoUsuario || !usuario.AceitouTermos,
                 precisaAceitarTermos = !usuario.AceitouTermos,
                 usuario = new
                 {
-                    usuario.Id, 
-                    usuario.Nome, 
-                    usuario.Email, 
+                    usuario.Id,
+                    usuario.Nome,
+                    usuario.Email,
                     usuario.Nickname,
-                    usuario.Descricao, 
-                    usuario.Avatar, 
+                    usuario.Descricao,
+                    usuario.Avatar,
                     usuario.Tema,
-                    usuario.Adm, 
-                    usuario.Ativo, 
+                    usuario.Adm,
+                    usuario.Ativo,
                     usuario.AceitouTermos
                 }
             });
@@ -293,9 +284,15 @@ public class AuthController : ControllerBase
         if (request == null || string.IsNullOrEmpty(request.RefreshToken))
             return BadRequest(new { mensagem = "Refresh token é obrigatório" });
 
-        // 🆕 Validar tamanho do token
         if (request.RefreshToken.Length > 1000)
             return BadRequest(new { mensagem = "Refresh token inválido" });
+
+        // 🆕 Bloqueia explicitamente o lixo "undefined"/"null" que ficou salvo no client
+        if (request.RefreshToken == "undefined" || request.RefreshToken == "null")
+        {
+            _logger.LogWarning("Refresh token inválido recebido (literal 'undefined'/'null')");
+            return Unauthorized(new { mensagem = "Refresh token inválido" });
+        }
 
         var usuarios = await _usuarioRepository.FindAsync(u => u.RefreshToken == request.RefreshToken);
         var usuario = usuarios.FirstOrDefault();
@@ -309,31 +306,29 @@ public class AuthController : ControllerBase
         if (!usuario.Ativo)
             return Unauthorized(new { mensagem = CONTA_DESATIVADA_MENSAGEM });
 
-        // 🆕 Gerar novos tokens
         var novoAccessToken = _tokenService.GerarToken(usuario.Id, usuario.Nome, usuario.Email, "refresh");
         var novoRefreshToken = GerarRefreshTokenSeguro();
 
-        // 🆕 Rotação de refresh token (invalidar o antigo)
         usuario.RefreshToken = novoRefreshToken;
         usuario.DataAtualizacao = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
 
-        Response.Headers["X-Refresh-Token"] = novoRefreshToken;
-
+        // 🆕 refreshToken agora vai no body (antes só no header)
         return Ok(new
         {
             token = novoAccessToken,
+            refreshToken = novoRefreshToken,
             usuario = new
             {
-                usuario.Id, 
-                usuario.Nome, 
-                usuario.Email, 
+                usuario.Id,
+                usuario.Nome,
+                usuario.Email,
                 usuario.Nickname,
-                usuario.Descricao, 
-                usuario.Avatar, 
+                usuario.Descricao,
+                usuario.Avatar,
                 usuario.Tema,
-                usuario.Adm, 
-                usuario.Ativo, 
+                usuario.Adm,
+                usuario.Ativo,
                 usuario.AceitouTermos
             }
         });
@@ -403,7 +398,6 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // 🆕 Registrar acesso
             var acesso = new Acesso
             {
                 Id = Guid.NewGuid().ToString(),
@@ -412,7 +406,6 @@ public class AuthController : ControllerBase
             };
             await _acessoRepository.AddAsync(acesso);
 
-            // 🆕 Atualizar usuário
             var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
             if (usuario != null)
             {

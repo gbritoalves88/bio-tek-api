@@ -69,11 +69,19 @@ public class HomeService : IHomeService
         // 2. Avaliações com nota >= 4 (evita GetAllAsync)
         var avaliacoesBoas = (await _avaliacaoRepository.FindAsync(a => (int)a.Nota >= 4)).ToList();
 
-        // 1. Livro atual
+        /// 1. Livro atual — prioridade: Lendo não pausado, senão Lendo pausado
         var livroAtual = todosLivros
-            .Where(l => l.Status == StatusLeitura.Lendo)
+            .Where(l => l.Status == StatusLeitura.Lendo && !l.Pausado)
             .OrderByDescending(l => l.UltimaLeitura ?? l.DataAtualizacao ?? l.DataCriacao)
-            .FirstOrDefault(l => !l.Pausado);
+            .FirstOrDefault();
+
+        if (livroAtual == null)
+        {
+            livroAtual = todosLivros
+                .Where(l => l.Status == StatusLeitura.Lendo && l.Pausado)
+                .OrderByDescending(l => l.UltimaLeitura ?? l.DataAtualizacao ?? l.DataCriacao)
+                .FirstOrDefault();
+        }
 
         // 2. Lista de leitura
         var listaLeitura = todosLivros
@@ -147,6 +155,31 @@ public class HomeService : IHomeService
             .Where(x => x != null)
             .ToList();
 
+        // 🆕 Outros pausados (excluindo o livroAtual)
+        var outrosPausados = todosLivros
+            .Where(l => l.Status == StatusLeitura.Lendo && l.Pausado && l.Id != livroAtual?.Id)
+            .OrderByDescending(l => l.UltimaLeitura ?? l.DataAtualizacao ?? l.DataCriacao)
+            .Take(10)
+            .Select(l => new
+            {
+                l.Id,
+                l.Titulo,
+                l.Autor,
+                l.Imagem,
+                l.Tipo,
+                l.Progresso,
+                l.PaginaAtual,
+                l.TotalPaginas,
+                l.MinutoAtual,
+                l.TotalMinutos,
+                l.UltimaLeitura,
+                l.Generos,
+                l.AnoPublicacao,
+                l.Editora,
+                l.Idioma
+            })
+            .ToList();
+
         // 4. Streak
         var streak = await _streakService.GetStreakAsync(usuarioId);
 
@@ -174,6 +207,7 @@ public class HomeService : IHomeService
                 livroAtual.Editora,
                 livroAtual.Idioma
             },
+            outrosPausados,
             listaLeitura,
             topAvaliados,
             streak

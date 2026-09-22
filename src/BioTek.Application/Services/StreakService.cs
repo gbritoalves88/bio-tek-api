@@ -153,6 +153,7 @@ public class StreakService : IStreakService
         var agora = AgoraBrasilia();
         var trintaDias = agora.Date.AddDays(-30);
 
+        // 🆕 Comentários
         var atividades = await _comentarioRepository.FindAsync(c =>
             c.IdUsuario == usuarioId &&
             c.Origem == "Atividade" &&
@@ -161,11 +162,20 @@ public class StreakService : IStreakService
         var dias = atividades
             .Select(a => TimeZoneInfo.ConvertTimeFromUtc(a.DataCriacao, FusoBrasilia).Date)
             .Distinct()
-            .OrderByDescending(d => d)
-            .Select(d => d.ToString("yyyy-MM-dd"))
-            .ToList();
+            .ToHashSet();
 
-        return new { dias };
+        // 🆕 Livros lidos recentemente
+        var livros = await _livroRepository.FindAsync(l =>
+            l.IdUsuario == usuarioId &&
+            l.UltimaLeitura != null &&
+            l.UltimaLeitura >= trintaDias);
+
+        foreach (var livro in livros)
+        {
+            dias.Add(TimeZoneInfo.ConvertTimeFromUtc(livro.UltimaLeitura!.Value, FusoBrasilia).Date);
+        }
+
+        return new { dias = dias.OrderByDescending(d => d).Select(d => d.ToString("yyyy-MM-dd")).ToList() };
     }
 
     public async Task<object?> GetMetricasMesAsync(string usuarioId)

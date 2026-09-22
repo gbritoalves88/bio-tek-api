@@ -159,10 +159,10 @@ namespace BioTek.Services
                             priority = "high",
                             notification = new
                             {
-                                icon = "ic_launcher",
+                                icon = "ic_stat_notification",
                                 color = "#DB7C00",
                                 sound = "default",
-                                click_action = "FCM_PLUGIN_ACTIVITY",
+                                //click_action = "FCM_PLUGIN_ACTIVITY",
                                 channel_id = "default"
                             }
                         }
@@ -258,10 +258,10 @@ namespace BioTek.Services
                         priority = "high",
                         notification = new
                         {
-                            icon = "ic_launcher",
+                            icon = "ic_stat_notification",
                             color = "#DB7C00",
                             sound = "default",
-                            click_action = "FCM_PLUGIN_ACTIVITY",
+                            //click_action = "FCM_PLUGIN_ACTIVITY",
                             channel_id = "default"
                         }
                     }

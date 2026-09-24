@@ -5,4 +5,5 @@ namespace BioTek.Domain.Interfaces;
 public interface IHomeService
 {
     Task<object> GetDashboardAsync(string usuarioId);
+    void LimparCache();
 }

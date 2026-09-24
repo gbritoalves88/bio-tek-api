@@ -21,5 +21,11 @@ public interface INotificacaoService
     Task CriarNotificacaoStreak(string idUsuario, int streakAtual);
     Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado);
     Task CriarNotificacaoIncentivoInicial(string idUsuario);
+    Task<bool> EnviarPushAsync(
+    string idUsuario,
+    string titulo,
+    string corpo,
+    string url,
+    string tipo);
 
 }

@@ -4,6 +4,7 @@ using BioTek.Models;
 using BioTek.Models.DTOs;
 using BioTek.Services.Interfaces;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 
 namespace BioTek.Application.Services;
 
@@ -19,6 +20,21 @@ public class NotificacaoService : INotificacaoService
     private static readonly Dictionary<string, (List<Notificacao> Data, DateTime Time)> _cacheNaoLidas = new();
     private static readonly object _cacheLock = new();
     private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
+
+    // Cooldown e limite diário
+    private static readonly HashSet<string> TiposSociais = new()
+    {
+        "seguidor", "comentario", "curtida_livro", "curtida_avaliacao"
+    };
+
+    private static readonly HashSet<string> TiposIncentivo = new()
+    {
+        "streak", "leitura", "reading_reminder", "start_reading", "add_book", "incentivo"
+    };
+
+    private const int LIMITE_DIARIO_INCENTIVO = 3;
+    private static readonly TimeSpan COOLDOWN_SOCIAL = TimeSpan.FromHours(1);
+    private static readonly TimeSpan JANELA_LIMITE_DIARIO = TimeSpan.FromHours(24);
 
     public NotificacaoService(
         IRepository<Notificacao> notificacaoRepository,
@@ -112,6 +128,8 @@ public class NotificacaoService : INotificacaoService
 
         var mensagem = $"{nomeSeguidor} começou a seguir você";
 
+        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio/comunidade", "seguidor");
+
         var notificacao = new Notificacao
         {
             Id = Guid.NewGuid().ToString(),
@@ -124,9 +142,6 @@ public class NotificacaoService : INotificacaoService
         };
         await _notificacaoRepository.AddAsync(notificacao);
         LimparCacheNaoLidas(idUsuario);
-
-        // 🆕 Push
-        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio/comunidade", "seguidor");
     }
 
     public async Task CriarNotificacaoComentario(string idUsuarioDono, string idLivro, string tituloLivro, string nomeComentador)
@@ -135,6 +150,8 @@ public class NotificacaoService : INotificacaoService
             return;
 
         var mensagem = $"{nomeComentador} comentou em \"{tituloLivro}\"";
+
+        await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, $"/inicio/livro/{idLivro}", "comentario");
 
         var notificacao = new Notificacao
         {
@@ -148,9 +165,6 @@ public class NotificacaoService : INotificacaoService
         };
         await _notificacaoRepository.AddAsync(notificacao);
         LimparCacheNaoLidas(idUsuarioDono);
-
-        // 🆕 Push
-        await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, $"/inicio/livro/{idLivro}", "comentario");
     }
 
     public async Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro)
@@ -164,6 +178,8 @@ public class NotificacaoService : INotificacaoService
             ? $"{nomeCurtidor} curtiu sua avaliação de \"{tituloLivro}\" ❤️"
             : $"{nomeCurtidor} curtiu sua postagem de \"{tituloLivro}\" ❤️";
 
+        await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, "/inicio/comunidade", tipo);
+
         var notificacao = new Notificacao
         {
             Id = Guid.NewGuid().ToString(),
@@ -176,9 +192,6 @@ public class NotificacaoService : INotificacaoService
         };
         await _notificacaoRepository.AddAsync(notificacao);
         LimparCacheNaoLidas(idUsuarioDono);
-
-        // 🆕 Push
-        await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, "/inicio/comunidade", tipo);
     }
 
     // ============ SUBSCRIPTIONS ============
@@ -190,10 +203,12 @@ public class NotificacaoService : INotificacaoService
             if (string.IsNullOrEmpty(request?.UserId) || string.IsNullOrEmpty(request?.Token))
                 return false;
 
+            // Desativa subscriptions antigas do mesmo UserId+Device que não sejam esse token
             var oldSubscriptions = await _subscriptionRepository.FindAsync(s =>
                 s.UserId == request.UserId &&
                 s.Device == request.Device &&
-                s.IsActive);
+                s.IsActive &&
+                s.Token != request.Token);
 
             foreach (var old in oldSubscriptions)
             {
@@ -202,6 +217,7 @@ public class NotificacaoService : INotificacaoService
                 await _subscriptionRepository.UpdateAsync(old.Id, old);
             }
 
+            // Verifica se o token já existe
             var existingSubscription = (await _subscriptionRepository.FindAsync(
                 s => s.Token == request.Token)).FirstOrDefault();
 
@@ -228,7 +244,26 @@ public class NotificacaoService : INotificacaoService
                     IsActive = true
                 };
 
-                await _subscriptionRepository.AddAsync(subscription);
+                try
+                {
+                    await _subscriptionRepository.AddAsync(subscription);
+                }
+                catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+                {
+                    // Alguém inseriu entre o FindAsync e o AddAsync. Rebusca e reativa.
+                    var sub = (await _subscriptionRepository.FindAsync(s =>
+                        s.Token == request.Token)).FirstOrDefault();
+
+                    if (sub != null)
+                    {
+                        sub.UserId = request.UserId;
+                        sub.Device = request.Device;
+                        sub.Platform = request.Platform;
+                        sub.IsActive = true;
+                        sub.LastUsedAt = DateTime.UtcNow;
+                        await _subscriptionRepository.UpdateAsync(sub.Id, sub);
+                    }
+                }
             }
 
             return true;
@@ -285,6 +320,8 @@ public class NotificacaoService : INotificacaoService
         if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(mensagem))
             return;
 
+        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio", tipo);
+
         var notificacao = new Notificacao
         {
             Id = Guid.NewGuid().ToString(),
@@ -296,9 +333,6 @@ public class NotificacaoService : INotificacaoService
         };
         await _notificacaoRepository.AddAsync(notificacao);
         LimparCacheNaoLidas(idUsuario);
-
-        // 🆕 Push
-        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio", tipo);
     }
 
     public async Task CriarNotificacaoStreak(string idUsuario, int streakAtual)
@@ -328,19 +362,47 @@ public class NotificacaoService : INotificacaoService
         );
     }
 
-    // ============ AUXILIARES ============
+    // ============ ENVIO DE PUSH (público + cooldown/limite) ============
 
-    private async Task EnviarPushAsync(string idUsuario, string titulo, string corpo, string url, string tipo)
+    public async Task<bool> EnviarPushAsync(
+        string idUsuario,
+        string titulo,
+        string corpo,
+        string url,
+        string tipo)
     {
         try
         {
+            if (string.IsNullOrEmpty(idUsuario))
+                return false;
+
+            // Verifica cooldown/limite conforme o tipo
+            if (TiposSociais.Contains(tipo))
+            {
+                var jaEnviou = await JaEnviouRecentemente(idUsuario, tipo, COOLDOWN_SOCIAL);
+                if (jaEnviou)
+                {
+                    _logger.LogInformation($"Cooldown ativo para {tipo} do usuário {idUsuario}. Push não enviado.");
+                    return false;
+                }
+            }
+            else if (TiposIncentivo.Contains(tipo))
+            {
+                var total = await ContarIncentivosRecentes(idUsuario, JANELA_LIMITE_DIARIO);
+                if (total >= LIMITE_DIARIO_INCENTIVO)
+                {
+                    _logger.LogInformation($"Limite diário de incentivos atingido para {idUsuario}. Push não enviado.");
+                    return false;
+                }
+            }
+
             var subs = await _subscriptionRepository.FindAsync(s =>
                 s.UserId == idUsuario && s.IsActive);
 
             var tokens = subs.Select(s => s.Token).ToList();
 
             if (tokens.Count == 0)
-                return;
+                return false;
 
             var data = new Dictionary<string, string>
             {
@@ -348,12 +410,35 @@ public class NotificacaoService : INotificacaoService
                 { "url", url }
             };
 
-            await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
+            return await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Erro ao enviar push para usuário {idUsuario}");
+            return false;
         }
+    }
+
+    // Verifica se já enviou notificação desse tipo recentemente
+    private async Task<bool> JaEnviouRecentemente(string idUsuario, string tipo, TimeSpan janela)
+    {
+        var limite = DateTime.UtcNow - janela;
+        var existentes = await _notificacaoRepository.FindAsync(n =>
+            n.IdUsuario == idUsuario &&
+            n.Tipo == tipo &&
+            n.DataCriacao > limite);
+        return existentes.Any();
+    }
+
+    // Conta incentivos enviados nas últimas X horas
+    private async Task<int> ContarIncentivosRecentes(string idUsuario, TimeSpan janela)
+    {
+        var limite = DateTime.UtcNow - janela;
+        var existentes = await _notificacaoRepository.FindAsync(n =>
+            n.IdUsuario == idUsuario &&
+            n.DataCriacao > limite &&
+            TiposIncentivo.Contains(n.Tipo));
+        return existentes.Count();
     }
 
     private void LimparCacheNaoLidas(string usuarioId)

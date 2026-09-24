@@ -19,6 +19,7 @@ public class LivroService : ILivroService
     private readonly IStreakService _streakService;
     private readonly IRepository<Catalogo> _catalogoRepository;
 
+    private readonly IHomeService _homeService;
     public LivroService(
         IRepository<Livro> livroRepository,
         IRepository<Colecao> colecaoRepository,
@@ -28,7 +29,8 @@ public class LivroService : ILivroService
         IRepository<AvaliacaoLivro> avaliacaoLivroRepository,
         IRepository<Usuario> usuarioRepository,
         IRepository<Catalogo> catalogoRepository,
-        IStreakService streakService)
+        IStreakService streakService,
+        IHomeService homeService)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
@@ -39,6 +41,7 @@ public class LivroService : ILivroService
         _usuarioRepository = usuarioRepository;
         _catalogoRepository = catalogoRepository;
         _streakService = streakService;
+        _homeService = homeService;
     }
 
     // ========== BUSCAS ==========
@@ -121,6 +124,7 @@ public class LivroService : ILivroService
             livro.Generos = new List<string>();
 
         await _livroRepository.AddAsync(livro);
+        _homeService.LimparCache();
         return livro;
     }
 
@@ -158,6 +162,8 @@ public class LivroService : ILivroService
             livro.Generos = existente.Generos ?? new List<string>();
 
         await _livroRepository.UpdateAsync(id, livro);
+
+        _homeService.LimparCache();
 
         if (livro.Status == StatusLeitura.Lido && estrelas.HasValue)
         {
@@ -199,6 +205,7 @@ public class LivroService : ILivroService
         if (existente == null) return false;
 
         await _livroRepository.DeleteAsync(id);
+        _homeService.LimparCache();
         return true;
     }
 
@@ -334,6 +341,7 @@ public class LivroService : ILivroService
 
         await _livroRepository.UpdateAsync(id, existente);
         await _streakService.RegistrarAtividadeAsync(usuarioId);
+        _homeService.LimparCache();
 
         var progressoAtual = existente.Progresso;
         var deveRegistrar = false;

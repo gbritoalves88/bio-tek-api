@@ -91,9 +91,8 @@ public class StreakNotificationBackgroundService : BackgroundService
 
         var streakRepository = scope.ServiceProvider.GetRequiredService<IRepository<StreakUsuario>>();
         var usuarioRepository = scope.ServiceProvider.GetRequiredService<IRepository<Usuario>>();
-        var firebaseService = scope.ServiceProvider.GetRequiredService<IFirebaseNotificationService>();
-        var notificacaoRepository = scope.ServiceProvider.GetRequiredService<IRepository<NotificationSubscription>>();
-        var notificacaoInternaRepo = scope.ServiceProvider.GetRequiredService<IRepository<Notificacao>>(); // 🆕
+        var notificacaoService = scope.ServiceProvider.GetRequiredService<INotificacaoService>(); // 🆕
+        var notificacaoInternaRepo = scope.ServiceProvider.GetRequiredService<IRepository<Notificacao>>();
 
         var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
         var hoje = agoraBrasilia.Date;
@@ -116,28 +115,20 @@ public class StreakNotificationBackgroundService : BackgroundService
                 if (usuario == null || !usuario.Ativo)
                     continue;
 
-                var subscriptions = await notificacaoRepository.FindAsync(s =>
-                    s.UserId == streak.IdUsuario && s.IsActive);
-
-                var tokens = subscriptions.Select(s => s.Token).ToList();
-
-                if (tokens.Count == 0)
-                    continue;
-
                 var titulo = "🔥 Continue sua sequência!";
                 var corpo = $"Sua sequência está em {streak.SequenciaAtual} dias. Leia um pouco hoje para continuar seu hábito.";
                 var url = "/inicio";
 
-                var data = new Dictionary<string, string>
-                {
-                    { "type", "streak_reminder" },
-                    { "streak", streak.SequenciaAtual.ToString() },
-                    { "userId", streak.IdUsuario }
-                };
+                // 🆕 Envia o push via NotificacaoService (com cooldown/limite)
+                var enviou = await notificacaoService.EnviarPushAsync(
+                    streak.IdUsuario,
+                    titulo,
+                    corpo,
+                    url,
+                    "streak"
+                );
 
-                await firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
-
-                // 🆕 Cria notificação interna
+                // 🆕 Cria notificação interna independente do push ter sido enviado
                 await notificacaoInternaRepo.AddAsync(new Notificacao
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -148,9 +139,15 @@ public class StreakNotificationBackgroundService : BackgroundService
                     Lida = false
                 });
 
-                enviados++;
-
-                _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
+                if (enviou)
+                {
+                    enviados++;
+                    _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
+                }
+                else
+                {
+                    _logger.LogInformation($"Push de streak bloqueado para {usuario.Nickname} (cooldown/limite)");
+                }
             }
             catch (Exception ex)
             {

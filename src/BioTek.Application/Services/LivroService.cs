@@ -311,8 +311,11 @@ public class LivroService : ILivroService
         if (existente == null || existente.IdUsuario != usuarioId)
             return null;
 
+        // 🆕 Guarda valores anteriores (antes de sobrescrever)
         var pausadoAnterior = existente.Pausado;
         var progressoAnterior = existente.Progresso;
+        var paginaAnterior = existente.PaginaAtual ?? 0;
+        var minutoAnterior = existente.MinutoAtual ?? 0;
         var primeiraLeitura = !existente.UltimaLeitura.HasValue;
 
         if (request.PaginaAtual.HasValue)
@@ -343,6 +346,43 @@ public class LivroService : ILivroService
         await _streakService.RegistrarAtividadeAsync(usuarioId);
         _homeService.LimparCache();
 
+        // ========== 🆕 REGISTRAR LEITURA DO DIA ==========
+        // Só registra se houve mudança real de progresso (página, minuto, pausa ou progresso)
+        var teveMudanca = false;
+        var paginasDelta = 0;
+        var minutosDelta = 0;
+
+        if (request.PaginaAtual.HasValue && request.PaginaAtual.Value != paginaAnterior)
+        {
+            teveMudanca = true;
+            var delta = request.PaginaAtual.Value - paginaAnterior;
+            if (delta > 0) paginasDelta = delta;
+        }
+
+        if (request.MinutoAtual.HasValue && request.MinutoAtual.Value != minutoAnterior)
+        {
+            teveMudanca = true;
+            var delta = request.MinutoAtual.Value - minutoAnterior;
+            if (delta > 0) minutosDelta = delta;
+        }
+
+        if (request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior)
+            teveMudanca = true;
+
+        if (request.Progresso.HasValue && request.Progresso.Value != progressoAnterior)
+            teveMudanca = true;
+
+        if (teveMudanca)
+        {
+            await _streakService.RegistrarLeituraHojeAsync(
+                usuarioId,
+                id,
+                paginasDelta > 0 ? paginasDelta : (int?)null,
+                minutosDelta > 0 ? minutosDelta : (int?)null
+            );
+        }
+
+        // ========== REGISTRO DE ATIVIDADE (COMENTÁRIO) ==========
         var progressoAtual = existente.Progresso;
         var deveRegistrar = false;
         var mensagem = "";
@@ -396,7 +436,6 @@ public class LivroService : ILivroService
 
         return existente;
     }
-
     // ========== ATIVIDADES (OTIMIZADO) ==========
 
     public async Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId)

@@ -11,6 +11,7 @@ public class StreakService : IStreakService
     private readonly IRepository<ComentarioLivro> _comentarioRepository;
     private readonly ILogger<StreakService> _logger;
     private readonly IRepository<Livro> _livroRepository;
+    private readonly IRepository<Leitura> _leituraRepository;
 
     private static readonly TimeZoneInfo FusoBrasilia = 
         TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
@@ -24,12 +25,14 @@ public class StreakService : IStreakService
         IRepository<StreakUsuario> streakRepository,
         IRepository<ComentarioLivro> comentarioRepository,
         ILogger<StreakService> logger,
-        IRepository<Livro> livroRepository)
+        IRepository<Livro> livroRepository,
+        IRepository<Leitura> leituraRepository)
     {
         _streakRepository = streakRepository;
         _comentarioRepository = comentarioRepository;
         _logger = logger;
         _livroRepository = livroRepository;
+        _leituraRepository = leituraRepository;
     }
 
     private DateTime AgoraBrasilia() => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
@@ -153,31 +156,19 @@ public class StreakService : IStreakService
         var agora = AgoraBrasilia();
         var trintaDias = agora.Date.AddDays(-30);
 
-        // 🆕 Comentários
-        var atividades = await _comentarioRepository.FindAsync(c =>
-            c.IdUsuario == usuarioId &&
-            c.Origem == "Atividade" &&
-            c.DataCriacao >= trintaDias);
-
-        var dias = atividades
-            .Select(a => TimeZoneInfo.ConvertTimeFromUtc(a.DataCriacao, FusoBrasilia).Date)
-            .Distinct()
-            .ToHashSet();
-
-        // 🆕 Livros lidos recentemente
-        var livros = await _livroRepository.FindAsync(l =>
+        var leituras = await _leituraRepository.FindAsync(l =>
             l.IdUsuario == usuarioId &&
-            l.UltimaLeitura != null &&
-            l.UltimaLeitura >= trintaDias);
+            l.Data >= trintaDias);
 
-        foreach (var livro in livros)
-        {
-            dias.Add(TimeZoneInfo.ConvertTimeFromUtc(livro.UltimaLeitura!.Value, FusoBrasilia).Date);
-        }
+        var dias = leituras
+            .Select(l => l.Data)
+            .Distinct()
+            .OrderByDescending(d => d)
+            .Select(d => d.ToString("yyyy-MM-dd"))
+            .ToList();
 
-        return new { dias = dias.OrderByDescending(d => d).Select(d => d.ToString("yyyy-MM-dd")).ToList() };
+        return new { dias };
     }
-
     public async Task<object?> GetMetricasMesAsync(string usuarioId)
     {
         // 🆕 Usa Brasília para início do mês
@@ -206,5 +197,46 @@ public class StreakService : IStreakService
             minutosOuvidos,
             diasDeLeitura
         };
+    }
+
+    public async Task RegistrarLeituraHojeAsync(string usuarioId, string livroId, int? paginas, int? minutos)
+    {
+        try
+        {
+            var hoje = DateTime.UtcNow.Date;
+
+            var leituraExistente = (await _leituraRepository.FindAsync(l =>
+                l.IdUsuario == usuarioId &&
+                l.Data == hoje)).FirstOrDefault();
+
+            if (leituraExistente != null)
+            {
+                if (!leituraExistente.LivrosLidos.Contains(livroId))
+                    leituraExistente.LivrosLidos.Add(livroId);
+
+                if (paginas.HasValue) leituraExistente.PaginasLidas += paginas.Value;
+                if (minutos.HasValue) leituraExistente.MinutosOuvidos += minutos.Value;
+
+                leituraExistente.DataAtualizacao = DateTime.UtcNow;
+                await _leituraRepository.UpdateAsync(leituraExistente.Id, leituraExistente);
+            }
+            else
+            {
+                await _leituraRepository.AddAsync(new Leitura
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    IdUsuario = usuarioId,
+                    Data = hoje,
+                    LivrosLidos = new List<string> { livroId },
+                    PaginasLidas = paginas ?? 0,
+                    MinutosOuvidos = minutos ?? 0,
+                    DataCriacao = DateTime.UtcNow
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao registrar leitura do dia");
+        }
     }
 }

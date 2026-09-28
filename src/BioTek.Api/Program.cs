@@ -294,6 +294,12 @@ builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>
     return new MongoRepository<StreakUsuario>(context, "StreakUsuarios");
 });
 
+builder.Services.AddScoped<IRepository<Leitura>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<Leitura>(context, "Leituras");
+});
+
 // ==========================================
 // 5. SERVICES (regras de negócio)
 // ==========================================

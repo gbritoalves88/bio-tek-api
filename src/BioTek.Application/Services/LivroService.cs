@@ -140,15 +140,47 @@ public class LivroService : ILivroService
                 throw new InvalidOperationException("Coleção não encontrada");
         }
 
+        // ========== CAMPOS DE SISTEMA (sempre preservados) ==========
         livro.Id = id;
         livro.DataCriacao = existente.DataCriacao;
         livro.DataAtualizacao = DateTime.UtcNow;
         livro.IdUsuario = existente.IdUsuario;
 
+        // ========== 🆕 CAMPOS EDITÁVEIS (preserva se vier vazio) ==========
+        if (string.IsNullOrWhiteSpace(livro.Titulo))
+            livro.Titulo = existente.Titulo;
+
+        if (string.IsNullOrWhiteSpace(livro.Autor))
+            livro.Autor = existente.Autor;
+
+        if (string.IsNullOrWhiteSpace(livro.Descricao))
+            livro.Descricao = existente.Descricao;
+
+        if (string.IsNullOrWhiteSpace(livro.Imagem))
+            livro.Imagem = existente.Imagem;
+
+        if (string.IsNullOrWhiteSpace(livro.CodigoBarras))
+            livro.CodigoBarras = existente.CodigoBarras;
+
+        if (string.IsNullOrWhiteSpace(livro.Editora))
+            livro.Editora = existente.Editora;
+
+        if (string.IsNullOrWhiteSpace(livro.Idioma))
+            livro.Idioma = existente.Idioma;
+
+        if (livro.AnoPublicacao == null || livro.AnoPublicacao == 0)
+            livro.AnoPublicacao = existente.AnoPublicacao;
+
+        if (livro.Generos == null || livro.Generos.Count == 0)
+            livro.Generos = existente.Generos ?? new List<string>();
+
         if (string.IsNullOrEmpty(livro.Tipo))
             livro.Tipo = existente.Tipo ?? "livro";
 
-        // Preserva progresso
+        if (livro.Status == 0)
+            livro.Status = existente.Status;
+
+        // ========== CAMPOS DE PROGRESSO (sempre preservados) ==========
         livro.Progresso = existente.Progresso;
         livro.PaginaAtual = existente.PaginaAtual;
         livro.TotalPaginas = existente.TotalPaginas;
@@ -157,14 +189,11 @@ public class LivroService : ILivroService
         livro.UltimaLeitura = existente.UltimaLeitura;
         livro.Pausado = existente.Pausado;
 
-        // Garante listas não nulas
-        if (livro.Generos == null)
-            livro.Generos = existente.Generos ?? new List<string>();
-
+        // ========== SALVA ==========
         await _livroRepository.UpdateAsync(id, livro);
-
         _homeService.LimparCache();
 
+        // ========== AVALIAÇÃO (inalterado) ==========
         if (livro.Status == StatusLeitura.Lido && estrelas.HasValue)
         {
             if (estrelas.Value < 1 || estrelas.Value > 5)

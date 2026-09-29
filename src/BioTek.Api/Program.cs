@@ -300,6 +300,7 @@ builder.Services.AddScoped<IRepository<Leitura>>(sp =>
     return new MongoRepository<Leitura>(context, "Leituras");
 });
 
+builder.Services.AddSingleton<IR2Service, R2Service>();
 // ==========================================
 // 5. SERVICES (regras de negócio)
 // ==========================================

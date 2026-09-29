@@ -203,7 +203,8 @@ public class StreakService : IStreakService
     {
         try
         {
-            var hoje = DateTime.UtcNow.Date;
+            // 🆕 Usa horário de Brasília pra definir o "dia" (alinha com o front)
+            var hoje = AgoraBrasilia().Date;
 
             var leituraExistente = (await _leituraRepository.FindAsync(l =>
                 l.IdUsuario == usuarioId &&

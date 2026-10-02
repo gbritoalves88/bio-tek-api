@@ -40,7 +40,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Login com Google (ID Token)
+    /// Login com Google (ID Token) — fluxo nativo (Capacitor)
     /// </summary>
     [AllowAnonymous]
     [HttpPost("google")]
@@ -55,6 +55,7 @@ public class AuthController : ControllerBase
 
         try
         {
+            // Valida contra o ClientId padrão (Android)
             var payload = await ValidarGoogleTokenAsync(request.IdToken);
             if (payload == null)
                 return Unauthorized(new { mensagem = "Token do Google inválido" });
@@ -109,7 +110,6 @@ public class AuthController : ControllerBase
 
             _ = Task.Run(() => RegistrarAcessoAsync(usuario.Id));
 
-            // 🆕 refreshToken agora vai no body (antes só no header)
             return Ok(new
             {
                 token,
@@ -144,7 +144,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Login com Google (Authorization Code)
+    /// Login com Google (Authorization Code) — fluxo web/TWA
     /// </summary>
     [AllowAnonymous]
     [HttpPost("google-code")]
@@ -164,12 +164,18 @@ public class AuthController : ControllerBase
 
             var redirectUri = request.RedirectUri ?? _configuration["Authentication:Google:RedirectUri"]!;
 
+            // 🆕 Web Client (usado pra trocar code por token)
+            var webClientId = _configuration["Authentication:Google:WebClientId"]
+                              ?? _configuration["Authentication:Google:ClientId"]!;
+            var webClientSecret = _configuration["Authentication:Google:WebClientSecret"]
+                                  ?? _configuration["Authentication:Google:ClientSecret"]!;
+
             var tokenResponse = await httpClient.PostAsync("https://oauth2.googleapis.com/token",
                 new FormUrlEncodedContent(new Dictionary<string, string>
                 {
                     ["code"] = request.Code,
-                    ["client_id"] = _configuration["Authentication:Google:ClientId"]!,
-                    ["client_secret"] = _configuration["Authentication:Google:ClientSecret"]!,
+                    ["client_id"] = webClientId,
+                    ["client_secret"] = webClientSecret,
                     ["redirect_uri"] = redirectUri,
                     ["grant_type"] = "authorization_code"
                 }));
@@ -185,7 +191,8 @@ public class AuthController : ControllerBase
             if (tokenData == null || string.IsNullOrEmpty(tokenData.IdToken))
                 return BadRequest(new { mensagem = "Token do Google não recebido." });
 
-            var payload = await ValidarGoogleTokenAsync(tokenData.IdToken);
+            // 🆕 Valida o idToken contra o Web Client (mesmo usado na troca)
+            var payload = await ValidarGoogleTokenAsync(tokenData.IdToken, webClientId);
             if (payload == null)
                 return Unauthorized(new { mensagem = "Token do Google inválido" });
 
@@ -239,7 +246,6 @@ public class AuthController : ControllerBase
 
             _ = Task.Run(() => RegistrarAcessoAsync(usuario.Id));
 
-            // 🆕 refreshToken agora vai no body (antes só no header)
             return Ok(new
             {
                 token,
@@ -287,7 +293,6 @@ public class AuthController : ControllerBase
         if (request.RefreshToken.Length > 1000)
             return BadRequest(new { mensagem = "Refresh token inválido" });
 
-        // 🆕 Bloqueia explicitamente o lixo "undefined"/"null" que ficou salvo no client
         if (request.RefreshToken == "undefined" || request.RefreshToken == "null")
         {
             _logger.LogWarning("Refresh token inválido recebido (literal 'undefined'/'null')");
@@ -313,7 +318,6 @@ public class AuthController : ControllerBase
         usuario.DataAtualizacao = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuario.Id, usuario);
 
-        // 🆕 refreshToken agora vai no body (antes só no header)
         return Ok(new
         {
             token = novoAccessToken,
@@ -361,11 +365,19 @@ public class AuthController : ControllerBase
 
     // ============ MÉTODOS AUXILIARES ============
 
-    private async Task<GoogleJsonWebSignature.Payload?> ValidarGoogleTokenAsync(string idToken)
+    /// <summary>
+    /// Valida o idToken do Google.
+    /// </summary>
+    /// <param name="idToken">Token JWT do Google</param>
+    /// <param name="audience">
+    /// Client ID esperado como audience. Se null, usa o ClientId padrão (Android).
+    /// No fluxo web (/google-code), deve-se passar o WebClientId.
+    /// </param>
+    private async Task<GoogleJsonWebSignature.Payload?> ValidarGoogleTokenAsync(string idToken, string? audience = null)
     {
         try
         {
-            var clientId = _configuration["Authentication:Google:ClientId"];
+            var clientId = audience ?? _configuration["Authentication:Google:ClientId"];
             if (string.IsNullOrEmpty(clientId))
             {
                 _logger.LogError("Google ClientId não configurado");

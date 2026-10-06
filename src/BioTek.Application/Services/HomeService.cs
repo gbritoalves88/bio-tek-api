@@ -97,6 +97,7 @@ public class HomeService : IHomeService
                 l.DataCriacao,
                 l.Generos,
                 l.AnoPublicacao,
+                l.ArquivoLeitura,
                 l.Editora,
                 l.Idioma
             })
@@ -141,6 +142,7 @@ public class HomeService : IHomeService
                     livro.AnoPublicacao,
                     livro.Editora,
                     livro.Idioma,
+                    livro.ArquivoLeitura,
                     item.Media,
                     TotalAvaliacoes = item.Total
                 };
@@ -168,6 +170,7 @@ public class HomeService : IHomeService
                 l.UltimaLeitura,
                 l.Generos,
                 l.AnoPublicacao,
+                l.ArquivoLeitura,
                 l.Editora,
                 l.Idioma
             })
@@ -198,6 +201,7 @@ public class HomeService : IHomeService
                 livroAtual.Generos,
                 livroAtual.AnoPublicacao,
                 livroAtual.Editora,
+                livroAtual.ArquivoLeitura,
                 livroAtual.Idioma
             },
             outrosPausados,

@@ -12,6 +12,7 @@ public class Livro : BaseEntity
     public string? Descricao { get; set; }
     public string? CodigoBarras { get; set; }
     public string? Imagem { get; set; }
+    public string? ArquivoLeitura { get; set; }
     public StatusLeitura Status { get; set; } = StatusLeitura.QueroLer;
     public int? Progresso { get; set; }
     public bool Pausado { get; set; } = false;
@@ -28,6 +29,7 @@ public class Livro : BaseEntity
     public int? AnoPublicacao { get; set; }
     public string? Editora { get; set; }
     public string? Idioma { get; set; }
+
 }
 public class LivroDetalhesWeb
 {

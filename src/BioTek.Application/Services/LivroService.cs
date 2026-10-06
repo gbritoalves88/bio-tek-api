@@ -84,6 +84,7 @@ public class LivroService : ILivroService
                 l.AnoPublicacao,
                 l.Editora,
                 l.Idioma,
+                l.ArquivoLeitura,
                 Avaliacao = av == null ? null : new { av.Id, av.Nota, av.DataCriacao }
             };
         }).ToList();
@@ -176,6 +177,9 @@ public class LivroService : ILivroService
 
         if (string.IsNullOrEmpty(livro.Tipo))
             livro.Tipo = existente.Tipo ?? "livro";
+
+        if (string.IsNullOrWhiteSpace(livro.ArquivoLeitura))
+            livro.ArquivoLeitura = existente.ArquivoLeitura;
 
         if (livro.Status == 0)
             livro.Status = existente.Status;
@@ -326,6 +330,7 @@ public class LivroService : ILivroService
                 livro.AnoPublicacao,
                 livro.Editora,
                 livro.Idioma,
+                livro.ArquivoLeitura,
                 Avaliacao = avaliacao == null ? null : new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao },
                 Comentarios = comentariosDoLivro
             };

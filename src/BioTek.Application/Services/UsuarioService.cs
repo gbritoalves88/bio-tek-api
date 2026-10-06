@@ -250,6 +250,7 @@ public class UsuarioService : IUsuarioService
                     l.AnoPublicacao,
                     l.Editora,
                     l.Idioma,
+                    l.ArquivoLeitura,
                     Avaliacao = avaliacao != null
                         ? new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao }
                         : null,

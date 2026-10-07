@@ -151,8 +151,8 @@ public class HomeService : IHomeService
             .ToList();
 
         // 4. Outros pausados
-        var outrosPausados = todosLivros
-            .Where(l => l.Status == StatusLeitura.Lendo && l.Pausado && l.Id != livroAtual?.Id)
+        var outrosEmAndamento = todosLivros
+            .Where(l => l.Status == StatusLeitura.Lendo && l.Id != livroAtual?.Id)
             .OrderByDescending(l => l.UltimaLeitura ?? l.DataAtualizacao ?? l.DataCriacao)
             .Take(10)
             .Select(l => new
@@ -204,7 +204,7 @@ public class HomeService : IHomeService
                 livroAtual.ArquivoLeitura,
                 livroAtual.Idioma
             },
-            outrosPausados,
+            outrosEmAndamento,
             listaLeitura,
             topAvaliados,
             streak

@@ -377,6 +377,24 @@ public class LivroService : ILivroService
             existente.Status = StatusLeitura.Lendo;
 
         await _livroRepository.UpdateAsync(id, existente);
+
+        // 🆕 Se este livro ficou ATIVO (não pausado + Lendo), pausa todos os outros
+        if (!existente.Pausado && existente.Status == StatusLeitura.Lendo)
+        {
+            var outrosLendo = await _livroRepository.FindAsync(l =>
+                l.IdUsuario == usuarioId &&
+                l.Id != id &&
+                l.Status == StatusLeitura.Lendo &&
+                !l.Pausado);
+
+            foreach (var outro in outrosLendo)
+            {
+                outro.Pausado = true;
+                outro.DataAtualizacao = DateTime.UtcNow;
+                await _livroRepository.UpdateAsync(outro.Id, outro);
+            }
+        }
+
         await _streakService.RegistrarAtividadeAsync(usuarioId);
         _homeService.LimparCache();
 

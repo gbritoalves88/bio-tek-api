@@ -3,6 +3,7 @@ using BioTek.Domain.Entities;
 using BioTek.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
@@ -18,61 +19,111 @@ public class ColecaoController : ControllerBase
         _colecaoService = colecaoService;
     }
 
+    // 🆕 GetUsuarioId padronizado
     private string GetUsuarioId()
     {
-        return User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                 ?? User.FindFirst("sub")?.Value;
+
+        if (string.IsNullOrEmpty(id))
+            throw new UnauthorizedAccessException("Usuário não autenticado");
+
+        return id;
     }
 
     /// <summary>
-    /// Lista todas as coleções
+    /// Lista as prateleiras do usuário logado (com 3 capas cada)
     /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetTodas()
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> GetMinhasPrateleiras()
     {
-        var colecoes = await _colecaoService.GetColecaoAsync();
+        var colecoes = await _colecaoService.GetColecoesAsync(GetUsuarioId());
         return Ok(colecoes);
     }
 
     /// <summary>
-    /// Busca coleção por ID
+    /// Busca prateleira por ID (só do próprio usuário)
     /// </summary>
     [HttpGet("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorId(string id)
     {
-        var colecao = await _colecaoService.GetPorIdColecaoAsync(id);
+        var usuarioId = GetUsuarioId();
+        var colecao = await _colecaoService.GetPorIdAsync(id, usuarioId);
+
         if (colecao == null) return NotFound();
         return Ok(colecao);
     }
 
     /// <summary>
-    /// Cria nova coleção
+    /// Cria nova prateleira
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Criar([FromBody] Colecao colecao)
     {
-        colecao.IdUsuario = GetUsuarioId();
-        var nova = await _colecaoService.CriarAsync(colecao);
-        return CreatedAtAction(nameof(GetPorId), new { id = nova.Id }, nova);
+        try
+        {
+            colecao.IdUsuario = GetUsuarioId();
+            var nova = await _colecaoService.CriarAsync(colecao);
+            return CreatedAtAction(nameof(GetPorId), new { id = nova.Id }, nova);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
+        }
     }
 
     /// <summary>
-    /// Atualiza coleção
+    /// Atualiza prateleira
     /// </summary>
     [HttpPut("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Atualizar(string id, [FromBody] Colecao colecao)
     {
-        var atualizada = await _colecaoService.AtualizarAsync(id, colecao);
-        if (atualizada == null) return NotFound();
-        return Ok(atualizada);
+        try
+        {
+            var usuarioId = GetUsuarioId();
+            var atualizada = await _colecaoService.AtualizarAsync(id, usuarioId, colecao);
+
+            if (atualizada == null)
+                return NotFound(new { mensagem = "Prateleira não encontrada" });
+
+            return Ok(atualizada);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensagem = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
+        }
     }
 
     /// <summary>
-    /// Deleta coleção
+    /// Deleta prateleira (livros não são deletados, só desvinculados)
     /// </summary>
     [HttpDelete("{id}")]
+    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Deletar(string id)
     {
-        var result = await _colecaoService.DeletarAsync(id);
-        return result ? NoContent() : NotFound();
+        try
+        {
+            var usuarioId = GetUsuarioId();
+            var deletado = await _colecaoService.DeletarAsync(id, usuarioId);
+
+            if (!deletado) return NotFound();
+            return NoContent();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { mensagem = "Usuário não autenticado" });
+        }
     }
 }

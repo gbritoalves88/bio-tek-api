@@ -331,6 +331,7 @@ public class LivroService : ILivroService
                 livro.Editora,
                 livro.Idioma,
                 livro.ArquivoLeitura,
+                livro.IdColecao,   
                 Avaliacao = avaliacao == null ? null : new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao },
                 Comentarios = comentariosDoLivro
             };

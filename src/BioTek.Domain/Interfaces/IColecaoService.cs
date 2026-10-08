@@ -3,10 +3,10 @@ using BioTek.Domain.Entities;
 namespace BioTek.Domain.Interfaces;
 
 public interface IColecaoService
-{    
-    Task<IEnumerable<Colecao>> GetColecaoAsync();
-    Task<Colecao?> GetPorIdColecaoAsync(string colecaoId);  // ⬅️ nullable
+{
+    Task<List<object>> GetColecoesAsync(string usuarioId);
+    Task<Colecao?> GetPorIdAsync(string id, string usuarioId);
     Task<Colecao> CriarAsync(Colecao colecao);
-    Task<Colecao?> AtualizarAsync(string id, Colecao colecao); // ⬅️ nullable
-    Task<bool> DeletarAsync(string id);
+    Task<Colecao?> AtualizarAsync(string id, string usuarioId, Colecao colecao);
+    Task<bool> DeletarAsync(string id, string usuarioId);
 }

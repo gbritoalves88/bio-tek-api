@@ -120,27 +120,47 @@ public class LivroController : ControllerBase
         try
         {
             var usuarioId = GetUsuarioId();
-            
-            // 🆕 Verifica se o livro pertence ao usuário
+
+            // Verifica se o livro pertence ao usuário
             var existente = await _livroService.GetPorIdAsync(id);
             if (existente == null || existente.IdUsuario != usuarioId)
                 return NotFound(new { mensagem = "Livro não encontrado" });
-            
-            var livro = JsonSerializer.Deserialize<Livro>(body.GetRawText(), 
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            // 🆕 Options com camelCase
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var livro = JsonSerializer.Deserialize<Livro>(body.GetRawText(), options);
 
             if (livro == null)
                 return BadRequest(new { mensagem = "Dados inválidos" });
 
+            // Extrai estrelas do body (não existe no Livro)
             int? estrelas = null;
-            if (body.TryGetProperty("estrelas", out var estrelasElement) && 
+            if (body.TryGetProperty("estrelas", out var estrelasElement) &&
                 estrelasElement.ValueKind != JsonValueKind.Null)
             {
                 estrelas = estrelasElement.GetInt32();
             }
 
+            // 🆕 PRESERVA IdColecao do body, porque o serializer pode não mapear
+            if (body.TryGetProperty("idColecao", out var idColecaoElement))
+            {
+                if (idColecaoElement.ValueKind == JsonValueKind.Null)
+                {
+                    livro.IdColecao = null;
+                }
+                else
+                {
+                    livro.IdColecao = idColecaoElement.GetString();
+                }
+            }
+
             var atualizado = await _livroService.AtualizarAsync(id, livro, estrelas);
-            if (atualizado == null) 
+            if (atualizado == null)
                 return NotFound(new { mensagem = "Livro não encontrado" });
 
             return Ok(atualizado);

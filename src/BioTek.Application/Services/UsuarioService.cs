@@ -235,6 +235,7 @@ public class UsuarioService : IUsuarioService
                 return new
                 {
                     l.Id,
+                    l.IdColecao,
                     l.Titulo,
                     l.Autor,
                     l.Imagem,

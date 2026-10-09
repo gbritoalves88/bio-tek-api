@@ -126,4 +126,15 @@ public class ColecaoController : ControllerBase
             return Unauthorized(new { mensagem = "Usuário não autenticado" });
         }
     }
+
+    /// <summary>
+    /// Lista as prateleiras de um usuário específico (visualização de perfil)
+    /// </summary>
+    [HttpGet("usuario/{usuarioId}")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> GetPrateleirasDoUsuario(string usuarioId)
+    {
+        var colecoes = await _colecaoService.GetColecoesAsync(usuarioId);
+        return Ok(colecoes);
+    }
 }

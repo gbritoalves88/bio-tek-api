@@ -15,17 +15,20 @@ public class UsuarioService : IUsuarioService
     private static readonly Dictionary<string, (object Data, DateTime Time)> _cachePerfil = new();
     private static readonly object _cacheLock = new();
     private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
+    private readonly IRepository<Colecao> _colecaoRepository;
 
     public UsuarioService(
         IRepository<Usuario> usuarioRepository,
         IRepository<Livro> livroRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
-        IRepository<ComentarioLivro> comentarioRepository)
+        IRepository<ComentarioLivro> comentarioRepository,
+        IRepository<Colecao> colecaoRepository)
     {
         _usuarioRepository = usuarioRepository;
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
-        _comentarioRepository = comentarioRepository;
+        _comentarioRepository = comentarioRepository;        
+        _colecaoRepository = colecaoRepository;
     }
 
     public async Task<bool> DeletarAsync(string id)
@@ -175,13 +178,15 @@ public class UsuarioService : IUsuarioService
         var tarefas = new
         {
             Livros = _livroRepository.FindAsync(l => l.IdUsuario == usuarioId),
-            Avaliacoes = _avaliacaoRepository.FindAsync(a => a.IdUsuario == usuarioId)
+            Avaliacoes = _avaliacaoRepository.FindAsync(a => a.IdUsuario == usuarioId),
+            Colecoes = _colecaoRepository.FindAsync(c => c.IdUsuario == usuarioId)  // 🆕
         };
 
-        await Task.WhenAll(tarefas.Livros, tarefas.Avaliacoes);
+        await Task.WhenAll(tarefas.Livros, tarefas.Avaliacoes, tarefas.Colecoes);  // 🆕
 
         var livros = await tarefas.Livros;
         var avaliacoes = await tarefas.Avaliacoes;
+        var colecoes = await tarefas.Colecoes;  // 🆕
 
         // 🆕 Buscar comentários apenas dos livros do usuário
         var idsLivros = livros.Select(l => l.Id).ToHashSet();
@@ -227,6 +232,30 @@ public class UsuarioService : IUsuarioService
             MediaAvaliacoes = avaliacoes.Any()
                 ? Math.Round(avaliacoes.Average(a => (int)a.Nota), 1)
                 : 0,
+
+            // 🆕 Coleções do usuário
+            Colecoes = colecoes.Select(c =>
+            {
+                var livrosDaColecao = livros
+                    .Where(l => l.IdColecao == c.Id)
+                    .ToList();
+
+                return new
+                {
+                    c.Id,
+                    c.Nome,
+                    c.Descricao,
+                    c.DataCriacao,
+                    TotalLivros = livrosDaColecao.Count,
+                    Capas = livrosDaColecao
+                        .Where(l => !string.IsNullOrEmpty(l.Imagem))
+                        .OrderByDescending(l => l.DataCriacao)
+                        .Take(3)
+                        .Select(l => l.Imagem)
+                        .ToList()
+                };
+            }).OrderBy(c => c.Nome).ToList(),
+
             Livros = livros.Select(l =>
             {
                 var avaliacao = avaliacoesPorLivro.GetValueOrDefault(l.Id);
@@ -323,7 +352,7 @@ public class UsuarioService : IUsuarioService
     }
 
     // 🆕 Método para limpar cache
-    private void LimparCachePerfil(string usuarioId)
+    public  void LimparCachePerfil(string usuarioId)
     {
         lock (_cacheLock)
         {

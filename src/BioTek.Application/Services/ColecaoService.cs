@@ -13,7 +13,7 @@ public class ColecaoService : IColecaoService
     private static string? _cacheUsuarioId;
     private static DateTime _cacheTime = DateTime.MinValue;
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(5);
 
     public ColecaoService(
         IRepository<Colecao> colecaoRepository,

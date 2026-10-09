@@ -14,4 +14,6 @@ public interface IUsuarioService
     Task<List<object>> BuscarAsync(string termo);
     Task UpdateFieldAsync(string id, string fieldName, object value);
     Task<IEnumerable<object>> GetUsuariosAsync();
+
+    void LimparCachePerfil(string usuarioId);
 }

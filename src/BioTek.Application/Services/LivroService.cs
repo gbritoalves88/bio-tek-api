@@ -18,7 +18,7 @@ public class LivroService : ILivroService
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly IStreakService _streakService;
     private readonly IRepository<Catalogo> _catalogoRepository;
-
+    private readonly IUsuarioService _usuarioService;
     private readonly IHomeService _homeService;
     public LivroService(
         IRepository<Livro> livroRepository,
@@ -30,7 +30,8 @@ public class LivroService : ILivroService
         IRepository<Usuario> usuarioRepository,
         IRepository<Catalogo> catalogoRepository,
         IStreakService streakService,
-        IHomeService homeService)
+        IHomeService homeService,
+        IUsuarioService usuarioService)
     {
         _livroRepository = livroRepository;
         _colecaoRepository = colecaoRepository;
@@ -42,6 +43,7 @@ public class LivroService : ILivroService
         _catalogoRepository = catalogoRepository;
         _streakService = streakService;
         _homeService = homeService;
+        _usuarioService = usuarioService;
     }
 
     // ========== BUSCAS ==========
@@ -125,6 +127,8 @@ public class LivroService : ILivroService
             livro.Generos = new List<string>();
 
         await _livroRepository.AddAsync(livro);
+        _homeService.LimparCache();
+        _usuarioService.LimparCachePerfil(livro.IdUsuario);
         _homeService.LimparCache();
         return livro;
     }
@@ -228,7 +232,7 @@ public class LivroService : ILivroService
                 await _avaliacaoLivroRepository.AddAsync(novaAvaliacao);
             }
         }
-
+        _usuarioService.LimparCachePerfil(livro.IdUsuario);
         return livro;
     }
 
@@ -239,6 +243,7 @@ public class LivroService : ILivroService
 
         await _livroRepository.DeleteAsync(id);
         _homeService.LimparCache();
+        _usuarioService.LimparCachePerfil(existente.IdUsuario);
         return true;
     }
 
@@ -486,7 +491,7 @@ public class LivroService : ILivroService
             };
             await _comentarioLivroRepository.AddAsync(atividade);
         }
-
+        _usuarioService.LimparCachePerfil(usuarioId);
         return existente;
     }
     // ========== ATIVIDADES (OTIMIZADO) ==========

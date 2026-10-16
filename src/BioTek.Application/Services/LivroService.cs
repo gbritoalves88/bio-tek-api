@@ -351,7 +351,16 @@ public class LivroService : ILivroService
         if (existente == null || existente.IdUsuario != usuarioId)
             return null;
 
-        // 🆕 Guarda valores anteriores (antes de sobrescrever)
+        // 🆕 Detecta se é APENAS pausa/retomada (sem progresso real)
+        var apenasPausa = request.Pausado.HasValue
+                        && !request.PaginaAtual.HasValue
+                        && !request.TotalPaginas.HasValue
+                        && !request.Progresso.HasValue
+                        && !request.MinutoAtual.HasValue
+                        && !request.TotalMinutos.HasValue
+                        && string.IsNullOrWhiteSpace(request.Frase);
+
+        // Guarda valores anteriores
         var pausadoAnterior = existente.Pausado;
         var progressoAnterior = existente.Progresso;
         var paginaAnterior = existente.PaginaAtual ?? 0;
@@ -384,7 +393,7 @@ public class LivroService : ILivroService
 
         await _livroRepository.UpdateAsync(id, existente);
 
-        // 🆕 Se este livro ficou ATIVO (não pausado + Lendo), pausa todos os outros
+        // 🆕 Continua pausando os outros livros em leitura (mantido)
         if (!existente.Pausado && existente.Status == StatusLeitura.Lendo)
         {
             var outrosLendo = await _livroRepository.FindAsync(l =>
@@ -401,44 +410,48 @@ public class LivroService : ILivroService
             }
         }
 
-        await _streakService.RegistrarAtividadeAsync(usuarioId);
+        // 🆕 Só registra atividade/streak se NÃO for pausa/retomada pura
+        if (!apenasPausa)
+        {
+            await _streakService.RegistrarAtividadeAsync(usuarioId);
+
+            // ========== REGISTRAR LEITURA DO DIA ==========
+            var teveMudanca = false;
+            var paginasDelta = 0;
+            var minutosDelta = 0;
+
+            if (request.PaginaAtual.HasValue && request.PaginaAtual.Value != paginaAnterior)
+            {
+                teveMudanca = true;
+                var delta = request.PaginaAtual.Value - paginaAnterior;
+                if (delta > 0) paginasDelta = delta;
+            }
+
+            if (request.MinutoAtual.HasValue && request.MinutoAtual.Value != minutoAnterior)
+            {
+                teveMudanca = true;
+                var delta = request.MinutoAtual.Value - minutoAnterior;
+                if (delta > 0) minutosDelta = delta;
+            }
+
+            if (request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior)
+                teveMudanca = true;
+
+            if (request.Progresso.HasValue && request.Progresso.Value != progressoAnterior)
+                teveMudanca = true;
+
+            if (teveMudanca)
+            {
+                await _streakService.RegistrarLeituraHojeAsync(
+                    usuarioId,
+                    id,
+                    paginasDelta > 0 ? paginasDelta : (int?)null,
+                    minutosDelta > 0 ? minutosDelta : (int?)null
+                );
+            }
+        }
+
         _homeService.LimparCache();
-
-        // ========== 🆕 REGISTRAR LEITURA DO DIA ==========
-        // Só registra se houve mudança real de progresso (página, minuto, pausa ou progresso)
-        var teveMudanca = false;
-        var paginasDelta = 0;
-        var minutosDelta = 0;
-
-        if (request.PaginaAtual.HasValue && request.PaginaAtual.Value != paginaAnterior)
-        {
-            teveMudanca = true;
-            var delta = request.PaginaAtual.Value - paginaAnterior;
-            if (delta > 0) paginasDelta = delta;
-        }
-
-        if (request.MinutoAtual.HasValue && request.MinutoAtual.Value != minutoAnterior)
-        {
-            teveMudanca = true;
-            var delta = request.MinutoAtual.Value - minutoAnterior;
-            if (delta > 0) minutosDelta = delta;
-        }
-
-        if (request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior)
-            teveMudanca = true;
-
-        if (request.Progresso.HasValue && request.Progresso.Value != progressoAnterior)
-            teveMudanca = true;
-
-        if (teveMudanca)
-        {
-            await _streakService.RegistrarLeituraHojeAsync(
-                usuarioId,
-                id,
-                paginasDelta > 0 ? paginasDelta : (int?)null,
-                minutosDelta > 0 ? minutosDelta : (int?)null
-            );
-        }
 
         // ========== REGISTRO DE ATIVIDADE (COMENTÁRIO) ==========
         var progressoAtual = existente.Progresso;
@@ -491,6 +504,7 @@ public class LivroService : ILivroService
             };
             await _comentarioLivroRepository.AddAsync(atividade);
         }
+
         _usuarioService.LimparCachePerfil(usuarioId);
         return existente;
     }

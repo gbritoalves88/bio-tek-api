@@ -15,6 +15,8 @@ using Microsoft.IdentityModel.Tokens;
 // 🆕 Usings para compressão e health checks
 using Microsoft.AspNetCore.ResponseCompression;
 using MongoDB.Driver;
+using BioTek.Application.Settings;
+using BioTek.Domain.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -281,6 +283,18 @@ builder.Services.Configure<FirebaseSettings>(options =>
     }
 });
 
+// 🆕 Book Offers (array direto do appsettings.json)
+var bookOffers = builder.Configuration
+    .GetSection("BookOffers")
+    .Get<List<BookOffer>>() ?? new List<BookOffer>();
+
+builder.Services.Configure<BookOffersSettings>(options =>
+{
+    options.Items = bookOffers;
+});
+
+builder.Services.AddScoped<BookOffersService>();
+
 // 🆕 CapaHash Repository
 builder.Services.AddScoped<IRepository<CapaHash>>(sp =>
 {
@@ -349,6 +363,7 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+
 
 // 🆕 Compressão de resposta (Brotli/Gzip)
 builder.Services.AddResponseCompression(options =>

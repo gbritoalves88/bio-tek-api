@@ -19,6 +19,5 @@ TestResults/
 *.trx
 
 # Segredos - IGNORAR TODOS os appsettings
-appsettings.json
 appsettings.Development.json
 firebase-service-account.json

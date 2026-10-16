@@ -1,12 +1,13 @@
 using BioTek.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace BioTek.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
-[AllowAnonymous]
 public class OffersController : ControllerBase
 {
     private readonly BookOffersService _offersService;
@@ -18,9 +19,12 @@ public class OffersController : ControllerBase
 
     /// <summary>
     /// Retorna as ofertas de livros em destaque (Amazon Afiliado).
+    /// Endpoint público — usado na Home antes do usuário autenticar.
     /// </summary>
     /// <param name="limit">Máximo de ofertas (default: 3, máximo: 20)</param>
+    [AllowAnonymous]
     [HttpGet("books")]
+    [EnableRateLimiting("GeneralPolicy")]
     [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Any)] // 5 min
     public IActionResult GetBookOffers([FromQuery] int limit = 3)
     {

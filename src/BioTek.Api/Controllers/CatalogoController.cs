@@ -397,4 +397,17 @@ public class CatalogoController : ControllerBase
             return StatusCode(500, new { mensagem = "Erro ao buscar livro" });
         }
     }
+
+    /// </summary>
+    [HttpGet("paginado")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> GetPaginado(
+        [FromQuery] int pagina = 1, 
+        [FromQuery] int tamanhoPagina = 20,
+        [FromQuery] string? busca = null,
+        [FromQuery] string? genero = null)
+    {
+        var resultado = await _catalogoService.GetPaginadoAsync(pagina, tamanhoPagina, busca, genero);
+        return Ok(resultado);
+    }
 }

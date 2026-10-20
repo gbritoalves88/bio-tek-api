@@ -52,4 +52,32 @@ public class MongoRepository<T> : IRepository<T> where T : class
         var filter = Builders<T>.Filter.Eq("Id", id);
         await _collection.DeleteOneAsync(filter);
     }
+
+    
+    // 🆕 Conta quantos registros batem com o filtro
+    public async Task<long> CountAsync(Expression<Func<T, bool>> filter)
+    {
+        return await _collection.CountDocumentsAsync(filter);
+    }
+
+    // 🆕 Busca paginada (skip = quantos pular, limit = quantos trazer)
+    public async Task<IEnumerable<T>> GetPaginadoAsync(
+        Expression<Func<T, bool>> filter, 
+        int skip, 
+        int limit, 
+        string? orderBy = null,
+        bool descending = true)
+    {
+        var query = _collection.Find(filter).Skip(skip).Limit(limit);
+
+        // 🆕 Se não passar ordenação, usa a propriedade "DataCriacao" por padrão
+        var campoOrdenacao = string.IsNullOrWhiteSpace(orderBy) ? "DataCriacao" : orderBy;
+        
+        var sort = descending 
+            ? Builders<T>.Sort.Descending(campoOrdenacao) 
+            : Builders<T>.Sort.Ascending(campoOrdenacao);
+
+        return await query.Sort(sort).ToListAsync();
+    }
 }
+

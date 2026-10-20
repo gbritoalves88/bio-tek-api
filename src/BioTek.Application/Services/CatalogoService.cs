@@ -1,4 +1,6 @@
+using System.Linq.Expressions;
 using System.Text.Json;
+using BioTek.Domain.Common;
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
@@ -15,13 +17,13 @@ public class CatalogoService : ICatalogoService
     private readonly IConfiguration _configuration;
     private readonly IRepository<Usuario> _usuarioRepository;
 
-    // 🆕 Cache da biblioteca inicial
+    // Cache da biblioteca inicial
     private static object? _cacheBiblioteca;
     private static DateTime _cacheBibliotecaTime = DateTime.MinValue;
     private static readonly object _cacheLock = new();
     private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(5);
 
-    // 🆕 Cache do catálogo completo
+    // Cache do catálogo completo
     private static List<Catalogo>? _cacheCatalogo;
     private static DateTime _cacheCatalogoTime = DateTime.MinValue;
     private static readonly TimeSpan CATALOGO_CACHE_DURATION = TimeSpan.FromMinutes(10);
@@ -44,7 +46,6 @@ public class CatalogoService : ICatalogoService
 
     public async Task<IEnumerable<Catalogo>> GetAllAsync()
     {
-        // 🆕 Usa cache do catálogo completo
         lock (_cacheLock)
         {
             if (_cacheCatalogo != null && DateTime.UtcNow - _cacheCatalogoTime < CATALOGO_CACHE_DURATION)
@@ -54,7 +55,7 @@ public class CatalogoService : ICatalogoService
         }
 
         var catalogos = (await _catalogoRepository.GetAllAsync()).ToList();
-        
+
         lock (_cacheLock)
         {
             _cacheCatalogo = catalogos;
@@ -62,6 +63,48 @@ public class CatalogoService : ICatalogoService
         }
 
         return catalogos;
+    }
+
+    // 🆕 NOVO MÉTODO PAGINADO
+    public async Task<PagedResult<Catalogo>> GetPaginadoAsync(int pagina, int tamanhoPagina, string? busca = null, string? genero = null)
+    {
+        if (pagina < 1) pagina = 1;
+        if (tamanhoPagina < 1) tamanhoPagina = 20;
+        if (tamanhoPagina > 100) tamanhoPagina = 100;
+
+        Expression<Func<Catalogo, bool>> filtro = c => true;
+
+        if (!string.IsNullOrWhiteSpace(busca) && !string.IsNullOrWhiteSpace(genero))
+        {
+            var termo = busca.Trim().ToLower();
+            var gen = genero.Trim().ToLower();
+            filtro = c => ((c.Titulo != null && c.Titulo.ToLower().Contains(termo)) ||
+                           (c.Autor != null && c.Autor.ToLower().Contains(termo)))
+                          && c.Generos != null && c.Generos.Any(g => g.ToLower() == gen);
+        }
+        else if (!string.IsNullOrWhiteSpace(busca))
+        {
+            var termo = busca.Trim().ToLower();
+            filtro = c => (c.Titulo != null && c.Titulo.ToLower().Contains(termo)) ||
+                          (c.Autor != null && c.Autor.ToLower().Contains(termo));
+        }
+        else if (!string.IsNullOrWhiteSpace(genero))
+        {
+            var gen = genero.Trim().ToLower();
+            filtro = c => c.Generos != null && c.Generos.Any(g => g.ToLower() == gen);
+        }
+
+        var total = await _catalogoRepository.CountAsync(filtro);
+        var skip = (pagina - 1) * tamanhoPagina;
+        var itens = await _catalogoRepository.GetPaginadoAsync(filtro, skip, tamanhoPagina);
+
+        return new PagedResult<Catalogo>
+        {
+            Total = total,
+            Pagina = pagina,
+            TamanhoPagina = tamanhoPagina,
+            Itens = itens
+        };
     }
 
     public async Task<Catalogo?> GetByIdAsync(string id)
@@ -74,10 +117,7 @@ public class CatalogoService : ICatalogoService
         catalogo.Id = Guid.NewGuid().ToString();
         catalogo.DataCriacao = DateTime.UtcNow;
         await _catalogoRepository.AddAsync(catalogo);
-        
-        // 🆕 Limpa cache ao adicionar
         LimparCacheCatalogo();
-        
         return catalogo;
     }
 
@@ -89,12 +129,9 @@ public class CatalogoService : ICatalogoService
         catalogo.Id = id;
         catalogo.DataCriacao = existente.DataCriacao;
         catalogo.DataAtualizacao = DateTime.UtcNow;
-        
+
         await _catalogoRepository.UpdateAsync(id, catalogo);
-        
-        // 🆕 Limpa cache ao atualizar
         LimparCacheCatalogo();
-        
         return catalogo;
     }
 
@@ -102,12 +139,9 @@ public class CatalogoService : ICatalogoService
     {
         var existente = await _catalogoRepository.GetByIdAsync(id);
         if (existente == null) return false;
-        
+
         await _catalogoRepository.DeleteAsync(id);
-        
-        // 🆕 Limpa cache ao deletar
         LimparCacheCatalogo();
-        
         return true;
     }
 
@@ -120,7 +154,7 @@ public class CatalogoService : ICatalogoService
 
         var todos = await GetAllAsync();
         var termoLower = termo.ToLower();
-        
+
         return todos.Where(l =>
             l.Titulo.ToLower().Contains(termoLower) ||
             l.Autor.ToLower().Contains(termoLower) ||
@@ -134,7 +168,7 @@ public class CatalogoService : ICatalogoService
 
         var todos = await GetAllAsync();
         var generoLower = genero.ToLower();
-        
+
         return todos.Where(l =>
             l.Generos != null && l.Generos.Any(g => g.ToLower().Contains(generoLower)));
     }
@@ -175,16 +209,16 @@ public class CatalogoService : ICatalogoService
     public async Task<List<Catalogo>> BuscarExternoPorTextoAsync(string termo, int limite = 20)
     {
         var resultados = new List<Catalogo>();
-        
+
         var openResultados = await BuscarOpenLibraryPorTextoAsync(termo, limite);
         resultados.AddRange(openResultados);
-        
+
         if (resultados.Count < limite)
         {
             var googleResultados = await BuscarGoogleBooksPorTextoAsync(termo, limite - resultados.Count);
             resultados.AddRange(googleResultados);
         }
-        
+
         return resultados.DistinctBy(l => l.CodigoBarras).Take(limite).ToList();
     }
 
@@ -193,18 +227,17 @@ public class CatalogoService : ICatalogoService
     public async Task<ImportacaoResultado> ImportarPorTermoAsync(string termo, int limite = 50)
     {
         var resultado = new ImportacaoResultado();
-        
+
         var livros = await BuscarExternoPorTextoAsync(termo, limite);
         resultado.TotalProcessados = livros.Count;
 
-        // 🆕 Carregar catálogo UMA VEZ
         var todos = (await GetAllAsync()).ToList();
-        
+
         var isbnsExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
             .Select(c => c.CodigoBarras!)
             .ToHashSet();
-        
+
         var titulosAutoresExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
             .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
@@ -221,10 +254,9 @@ public class CatalogoService : ICatalogoService
 
             try
             {
-                // 🆕 Verificar duplicata por ISBN OU título+autor
                 var chave = $"{livro.Titulo?.ToLower().Trim()}|{livro.Autor?.ToLower().Trim()}";
                 var jaExiste = false;
-                
+
                 if (!string.IsNullOrEmpty(livro.CodigoBarras) && isbnsExistentes.Contains(livro.CodigoBarras))
                 {
                     jaExiste = true;
@@ -233,7 +265,7 @@ public class CatalogoService : ICatalogoService
                 {
                     jaExiste = true;
                 }
-                
+
                 if (jaExiste)
                 {
                     item.Status = "JaExiste";
@@ -244,8 +276,7 @@ public class CatalogoService : ICatalogoService
                     await CreateAsync(livro);
                     item.Status = "Importado";
                     resultado.Importados++;
-                    
-                    // 🆕 Adicionar aos sets
+
                     if (!string.IsNullOrEmpty(livro.CodigoBarras))
                         isbnsExistentes.Add(livro.CodigoBarras);
                     titulosAutoresExistentes.Add(chave);
@@ -257,10 +288,10 @@ public class CatalogoService : ICatalogoService
                 item.Mensagem = ex.Message;
                 resultado.Erros++;
             }
-            
+
             resultado.Itens.Add(item);
         }
-        
+
         return resultado;
     }
 
@@ -276,7 +307,7 @@ public class CatalogoService : ICatalogoService
             try
             {
                 var catalogo = await BuscarPorIsbnAsync(isbn);
-                
+
                 if (catalogo != null)
                 {
                     item.Titulo = catalogo.Titulo;
@@ -296,10 +327,10 @@ public class CatalogoService : ICatalogoService
                 item.Mensagem = ex.Message;
                 resultado.Erros++;
             }
-            
+
             resultado.Itens.Add(item);
         }
-        
+
         return resultado;
     }
 
@@ -307,22 +338,22 @@ public class CatalogoService : ICatalogoService
     {
         var termos = categoria.ToLower() switch
         {
-            "terror" => new[] { 
+            "terror" => new[] {
                 "horror books best sellers", "stephen king novels", "lovecraft fiction",
                 "terror literature", "gothic horror novels", "supernatural horror books",
                 "dean koontz books", "clive barker books", "joe hill horror",
                 "anne rice vampire chronicles", "hp lovecraft cthulhu"
             },
-            "fantasia" => new[] { 
-                "fantasy best sellers", "harry potter", "game of thrones", 
+            "fantasia" => new[] {
+                "fantasy best sellers", "harry potter", "game of thrones",
                 "lord of the rings", "brandon sanderson", "wheel of time",
                 "tolkien middle earth", "robert jordan fantasy"
             },
-            "romance" => new[] { 
+            "romance" => new[] {
                 "romance books best", "best romance novels", "nicholas sparks",
                 "jane austen novels", "romance best sellers contemporary"
             },
-            "ficcao" => new[] { 
+            "ficcao" => new[] {
                 "fiction best sellers", "literary fiction", "contemporary fiction",
                 "award winning fiction", "booker prize winners"
             },
@@ -330,7 +361,7 @@ public class CatalogoService : ICatalogoService
         };
 
         var resultado = new ImportacaoResultado();
-        
+
         foreach (var termo in termos)
         {
             var importacao = await ImportarPorTermoAsync(termo, limite / termos.Length);
@@ -339,11 +370,11 @@ public class CatalogoService : ICatalogoService
             resultado.JaExistentes += importacao.JaExistentes;
             resultado.Erros += importacao.Erros;
             resultado.Itens.AddRange(importacao.Itens);
-            
+
             await Task.Delay(500);
             if (resultado.Importados >= limite) break;
         }
-        
+
         return resultado;
     }
 
@@ -355,9 +386,9 @@ public class CatalogoService : ICatalogoService
         if (catalogo == null)
             return null;
 
-        var existe = (await _livroRepository.FindAsync(l => 
+        var existe = (await _livroRepository.FindAsync(l =>
             l.IdUsuario == usuarioId && l.CodigoBarras == catalogo.CodigoBarras)).FirstOrDefault();
-        
+
         if (existe != null)
             throw new InvalidOperationException("Você já possui este livro na sua biblioteca");
 
@@ -408,7 +439,7 @@ public class CatalogoService : ICatalogoService
     public async Task<List<object>> GetMaisAdicionadosAsync(int limite = 10)
     {
         var todosLivros = await _livroRepository.GetAllAsync();
-        
+
         var maisAdicionados = todosLivros
             .GroupBy(l => l.Titulo?.ToLower().Trim())
             .Select(g => new
@@ -427,13 +458,12 @@ public class CatalogoService : ICatalogoService
             .OrderByDescending(x => x.Quantidade)
             .Take(limite)
             .ToList();
-        
+
         return maisAdicionados.Cast<object>().ToList();
     }
 
     public async Task<object> GetBibliotecaInicialAsync(string usuarioId)
     {
-        // 🆕 Verifica cache da biblioteca inicial
         lock (_cacheLock)
         {
             if (_cacheBiblioteca != null && DateTime.UtcNow - _cacheBibliotecaTime < CACHE_DURATION)
@@ -445,13 +475,13 @@ public class CatalogoService : ICatalogoService
         var catalogo = await GetAllAsync();
         var maisAdicionados = await GetMaisAdicionadosAsync(10);
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
-        
+
         var generosPreferidos = (usuario?.GenerosPreferidos != null && usuario.GenerosPreferidos.Count > 0)
             ? usuario.GenerosPreferidos
             : new List<string> { "Fantasia", "Romance", "Ficção" };
-        
+
         var recomendados = await BuscarRecomendadosPorGeneros(generosPreferidos);
-        
+
         var resultado = new
         {
             Catalogo = catalogo,
@@ -461,7 +491,6 @@ public class CatalogoService : ICatalogoService
             PrimeiroAcesso = usuario == null || (usuario.GenerosPreferidos == null || usuario.GenerosPreferidos.Count == 0)
         };
 
-        // 🆕 Salva no cache
         lock (_cacheLock)
         {
             _cacheBiblioteca = resultado;
@@ -474,11 +503,10 @@ public class CatalogoService : ICatalogoService
     private async Task<List<object>> BuscarRecomendadosPorGeneros(List<string> generos)
     {
         var todos = await GetAllAsync();
-        
         var generosLower = generos.Select(g => g.ToLower()).ToList();
-        
+
         return todos
-            .Where(l => l.Generos != null && l.Generos.Any(g => 
+            .Where(l => l.Generos != null && l.Generos.Any(g =>
                 generosLower.Any(gp => g.ToLower().Contains(gp))))
             .OrderBy(x => Guid.NewGuid())
             .Take(10)
@@ -509,7 +537,6 @@ public class CatalogoService : ICatalogoService
         usuario.DataAtualizacao = DateTime.UtcNow;
         await _usuarioRepository.UpdateAsync(usuarioId, usuario);
 
-        // 🆕 Limpa cache da biblioteca (preferências mudaram)
         lock (_cacheLock)
         {
             _cacheBiblioteca = null;
@@ -532,7 +559,7 @@ public class CatalogoService : ICatalogoService
         }
     }
 
-    // ========== IMPORTAÇÃO ROBUSTA (mantida) ==========
+    // ========== IMPORTAÇÃO ROBUSTA ==========
 
     public async Task<object> ImportarRobustoAsync(string? categoria, int livrosPorTermo = 40, int paginasPorTermo = 3)
     {
@@ -543,15 +570,13 @@ public class CatalogoService : ICatalogoService
         var termosProcessados = 0;
         var erros = new List<object>();
 
-        // 🆕 Carregar catálogo UMA VEZ
         var todos = (await GetAllAsync()).ToList();
-        
-        // 🆕 Sets para busca rápida (O(1))
+
         var isbnsExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
             .Select(c => c.CodigoBarras!)
             .ToHashSet();
-        
+
         var titulosAutoresExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
             .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
@@ -565,18 +590,17 @@ public class CatalogoService : ICatalogoService
                 {
                     var startIndex = pagina * livrosPorTermo;
                     var livros = await BuscarGoogleBooksPaginadoAsync(termo, livrosPorTermo, startIndex);
-                    
+
                     foreach (var livro in livros)
                     {
                         if (string.IsNullOrEmpty(livro.Titulo) || string.IsNullOrEmpty(livro.Autor))
                             continue;
-                        
+
                         totalProcessados++;
-                        
-                        // 🆕 Verificar duplicata por ISBN OU título+autor
+
                         var chave = $"{livro.Titulo.ToLower().Trim()}|{livro.Autor.ToLower().Trim()}";
                         var jaExiste = false;
-                        
+
                         if (!string.IsNullOrEmpty(livro.CodigoBarras) && isbnsExistentes.Contains(livro.CodigoBarras))
                         {
                             jaExiste = true;
@@ -585,13 +609,12 @@ public class CatalogoService : ICatalogoService
                         {
                             jaExiste = true;
                         }
-                        
+
                         if (!jaExiste)
                         {
                             await CreateAsync(livro);
                             totalImportados++;
-                            
-                            // 🆕 Adicionar aos sets para evitar duplicata no mesmo lote
+
                             if (!string.IsNullOrEmpty(livro.CodigoBarras))
                                 isbnsExistentes.Add(livro.CodigoBarras);
                             titulosAutoresExistentes.Add(chave);
@@ -601,7 +624,7 @@ public class CatalogoService : ICatalogoService
                             totalJaExistentes++;
                         }
                     }
-                    
+
                     termosProcessados++;
                     await Task.Delay(500);
                 }
@@ -611,7 +634,7 @@ public class CatalogoService : ICatalogoService
                 }
             }
         }
-        
+
         return new
         {
             Mensagem = "Importação robusta concluída",
@@ -704,14 +727,13 @@ public class CatalogoService : ICatalogoService
         var totalJaExistentes = 0;
         var resultadosPorLetra = new List<object>();
 
-        // 🆕 Carregar catálogo UMA VEZ
         var todos = (await GetAllAsync()).ToList();
-        
+
         var isbnsExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.CodigoBarras))
             .Select(c => c.CodigoBarras!)
             .ToHashSet();
-        
+
         var titulosAutoresExistentes = todos
             .Where(c => !string.IsNullOrEmpty(c.Titulo) && !string.IsNullOrEmpty(c.Autor))
             .Select(c => $"{c.Titulo.ToLower().Trim()}|{c.Autor.ToLower().Trim()}")
@@ -721,7 +743,7 @@ public class CatalogoService : ICatalogoService
         {
             var importadosNaLetra = 0;
             var existentesNaLetra = 0;
-            
+
             try
             {
                 var apiKey = _configuration["BooksApi:GoogleApiKey"];
@@ -743,13 +765,13 @@ public class CatalogoService : ICatalogoService
                 foreach (var item in items.EnumerateArray())
                 {
                     var volumeInfo = item.GetProperty("volumeInfo");
-                    
+
                     var titulo = volumeInfo.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
                     var autor = volumeInfo.TryGetProperty("authors", out var a) && a.GetArrayLength() > 0
                         ? string.Join(", ", a.EnumerateArray().Select(x => x.GetString()))
                         : "Autor desconhecido";
                     var descricao = volumeInfo.TryGetProperty("description", out var d) ? d.GetString() : null;
-                    
+
                     var imagem = "";
                     if (volumeInfo.TryGetProperty("imageLinks", out var img) && img.TryGetProperty("thumbnail", out var thumb))
                         imagem = thumb.GetString() ?? "";
@@ -770,10 +792,9 @@ public class CatalogoService : ICatalogoService
                     if (string.IsNullOrEmpty(titulo) || string.IsNullOrEmpty(autor))
                         continue;
 
-                    // 🆕 Verificar duplicata por ISBN OU título+autor
                     var chave = $"{titulo.ToLower().Trim()}|{autor.ToLower().Trim()}";
                     var jaExiste = false;
-                    
+
                     if (!string.IsNullOrEmpty(isbn) && isbnsExistentes.Contains(isbn))
                     {
                         jaExiste = true;
@@ -782,7 +803,7 @@ public class CatalogoService : ICatalogoService
                     {
                         jaExiste = true;
                     }
-                    
+
                     if (!jaExiste)
                     {
                         var novoCatalogo = new Catalogo
@@ -796,11 +817,10 @@ public class CatalogoService : ICatalogoService
                             Fonte = "GoogleBooks",
                             DataCriacao = DateTime.UtcNow
                         };
-                        
+
                         await _catalogoRepository.AddAsync(novoCatalogo);
                         importadosNaLetra++;
-                        
-                        // 🆕 Adicionar aos sets
+
                         if (!string.IsNullOrEmpty(isbn))
                             isbnsExistentes.Add(isbn);
                         titulosAutoresExistentes.Add(chave);
@@ -810,11 +830,11 @@ public class CatalogoService : ICatalogoService
                         existentesNaLetra++;
                     }
                 }
-                
+
                 totalImportados += importadosNaLetra;
                 totalJaExistentes += existentesNaLetra;
                 resultadosPorLetra.Add(new { Letra = letra.ToString(), Importados = importadosNaLetra, JaExistentes = existentesNaLetra });
-                
+
                 if (atrasoMs > 0)
                     await Task.Delay(atrasoMs);
             }
@@ -823,7 +843,7 @@ public class CatalogoService : ICatalogoService
                 resultadosPorLetra.Add(new { Letra = letra.ToString(), Erro = ex.Message });
             }
         }
-        
+
         return new
         {
             Mensagem = "Importação por letras concluída",
@@ -838,7 +858,7 @@ public class CatalogoService : ICatalogoService
     {
         var resultado = new ImportacaoResultado();
         var totalPorPagina = 50;
-        
+
         for (int pagina = 1; pagina <= maxPaginas; pagina++)
         {
             try
@@ -863,7 +883,7 @@ public class CatalogoService : ICatalogoService
 
                         if (string.IsNullOrEmpty(titulo)) continue;
 
-                        var existente = (await _catalogoRepository.FindAsync(c => 
+                        var existente = (await _catalogoRepository.FindAsync(c =>
                             c.Titulo == titulo && c.Autor == autores)).FirstOrDefault();
 
                         if (existente != null)
@@ -907,7 +927,7 @@ public class CatalogoService : ICatalogoService
         return resultado;
     }
 
-    // ========== MAPEAMENTOS (mantidos) ==========
+    // ========== MAPEAMENTOS ==========
 
     private async Task<Catalogo?> BuscarGoogleBooksPorIsbnAsync(string isbn)
     {
@@ -1006,7 +1026,7 @@ public class CatalogoService : ICatalogoService
         try
         {
             var info = item.GetProperty("volumeInfo");
-            
+
             var isbn = "";
             if (info.TryGetProperty("industryIdentifiers", out var ids))
             {

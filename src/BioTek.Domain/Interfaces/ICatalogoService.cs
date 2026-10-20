@@ -1,3 +1,4 @@
+using BioTek.Domain.Common;
 using BioTek.Domain.Entities;
 
 namespace BioTek.Domain.Interfaces;
@@ -10,6 +11,9 @@ public interface ICatalogoService
     Task<Catalogo> CreateAsync(Catalogo catalogo);
     Task<Catalogo?> UpdateAsync(string id, Catalogo catalogo);
     Task<bool> DeleteAsync(string id);
+    
+    // 🆕 Paginação
+    Task<PagedResult<Catalogo>> GetPaginadoAsync(int pagina, int tamanhoPagina, string? busca = null, string? genero = null);
     
     // Buscas
     Task<IEnumerable<Catalogo>> SearchAsync(string termo);

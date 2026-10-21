@@ -159,6 +159,13 @@ public class LivroController : ControllerBase
                 }
             }
 
+            // 🆕 Preserva Status se não veio no body
+            if (!body.TryGetProperty("status", out _) || 
+                body.GetProperty("status").ValueKind == JsonValueKind.Null)
+            {
+                livro.Status = existente.Status;
+            }
+
             var atualizado = await _livroService.AtualizarAsync(id, livro, estrelas);
             if (atualizado == null)
                 return NotFound(new { mensagem = "Livro não encontrado" });

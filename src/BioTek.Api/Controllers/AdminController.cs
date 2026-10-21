@@ -186,6 +186,37 @@ public class AdminController : ControllerBase
     }
 
     // ===== USUÁRIOS =====
+
+    /// <summary>
+    /// Registra que o usuário abriu o app hoje (1x por dia)
+    /// </summary>
+    [HttpPost("ping")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> Ping()
+    {
+        var usuarioId = GetUsuarioId();
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
+        if (usuario == null) return NotFound();
+
+        var agora = DateTime.UtcNow;
+        var ultimoAcesso = usuario.UltimoAcesso;
+
+        // 🆕 Só incrementa TotalAcessos se for um dia diferente
+        var deveIncrementar = !ultimoAcesso.HasValue 
+                            || ultimoAcesso.Value.Date < agora.Date;
+
+        if (deveIncrementar)
+        {
+            usuario.TotalAcessos += 1;
+        }
+
+        // 🆕 UltimoAcesso sempre atualiza
+        usuario.UltimoAcesso = agora;
+        await _usuarioRepository.UpdateAsync(usuarioId, usuario);
+
+        return NoContent();
+    }
+
     [HttpGet("usuarios")]
     public async Task<IActionResult> GetUsuarios(
         [FromQuery] int pagina = 1, 

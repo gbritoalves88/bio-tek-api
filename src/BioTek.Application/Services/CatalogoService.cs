@@ -472,7 +472,7 @@ public class CatalogoService : ICatalogoService
             }
         }
 
-        var catalogo = await GetAllAsync();
+        //var catalogo = await GetAllAsync();
         var maisAdicionados = await GetMaisAdicionadosAsync(10);
         var usuario = await _usuarioRepository.GetByIdAsync(usuarioId);
 
@@ -484,7 +484,7 @@ public class CatalogoService : ICatalogoService
 
         var resultado = new
         {
-            Catalogo = catalogo,
+            //Catalogo = catalogo,
             MaisAdicionados = maisAdicionados,
             GenerosPreferidos = generosPreferidos,
             Recomendados = recomendados,

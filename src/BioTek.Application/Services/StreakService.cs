@@ -19,8 +19,8 @@ public class StreakService : IStreakService
     // 🆕 Cache do streak
     private static readonly Dictionary<string, (object Data, DateTime Expiry)> _cache = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(10);
 
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(3); 
     public StreakService(
         IRepository<StreakUsuario> streakRepository,
         IRepository<ComentarioLivro> comentarioRepository,
@@ -46,12 +46,13 @@ public class StreakService : IStreakService
         }
     }
 
-    public async Task RegistrarAtividadeAsync(string usuarioId)
+     public async Task RegistrarAtividadeAsync(string usuarioId)
     {
         try
         {
-            var agora = AgoraBrasilia();
-            var hoje = agora.Date;
+            // 🆕 Define o "hoje" baseado no fuso de Brasília, mas com Kind=Utc para o Mongo
+            var agoraBrasilia = AgoraBrasilia();
+            var hoje = DateTime.SpecifyKind(agoraBrasilia.Date, DateTimeKind.Utc);
 
             var streaks = await _streakRepository.FindAsync(s => s.IdUsuario == usuarioId);
             var streak = streaks.FirstOrDefault();
@@ -71,13 +72,17 @@ public class StreakService : IStreakService
             }
             else
             {
-                var ultimaData = streak.UltimaDataAtividade?.Date;
+                // 🆕 Garante que a data vinda do Mongo tenha o Kind correto para comparação
+                var ultimaData = streak.UltimaDataAtividade.HasValue
+                    ? DateTime.SpecifyKind(streak.UltimaDataAtividade.Value.Date, DateTimeKind.Utc)
+                    : (DateTime?)null;
 
                 if (ultimaData == hoje)
                 {
-                    return; // Já leu hoje
+                    return; // Já leu hoje, não faz nada
                 }
-                else if (ultimaData == hoje.AddDays(-1))
+
+                if (ultimaData == hoje.AddDays(-1))
                 {
                     streak.SequenciaAtual++;
                     streak.MaiorSequencia = Math.Max(streak.MaiorSequencia, streak.SequenciaAtual);
@@ -93,7 +98,6 @@ public class StreakService : IStreakService
                 await _streakRepository.UpdateAsync(streak.Id, streak);
             }
 
-            // 🆕 Limpa cache após atualizar
             LimparCache(usuarioId);
         }
         catch (Exception ex)
@@ -113,8 +117,8 @@ public class StreakService : IStreakService
             }
         }
 
-        var agora = AgoraBrasilia();
-        var hoje = agora.Date;
+        var agoraBrasilia = AgoraBrasilia();
+        var hoje = DateTime.SpecifyKind(agoraBrasilia.Date, DateTimeKind.Utc);
 
         var streaks = await _streakRepository.FindAsync(s => s.IdUsuario == usuarioId);
         var streak = streaks.FirstOrDefault();
@@ -133,12 +137,17 @@ public class StreakService : IStreakService
         }
         else
         {
+            // 🆕 Garante o Kind correto na leitura
+            var ultimaData = streak.UltimaDataAtividade.HasValue
+                ? DateTime.SpecifyKind(streak.UltimaDataAtividade.Value.Date, DateTimeKind.Utc)
+                : (DateTime?)null;
+
             resultado = new
             {
                 sequenciaAtual = streak.SequenciaAtual,
                 maiorSequencia = streak.MaiorSequencia,
-                ultimaDataAtividade = streak.UltimaDataAtividade?.ToString("yyyy-MM-dd"),
-                leuHoje = streak.UltimaDataAtividade?.Date == hoje
+                ultimaDataAtividade = ultimaData?.ToString("yyyy-MM-dd"),
+                leuHoje = ultimaData == hoje
             };
         }
 
@@ -203,8 +212,7 @@ public class StreakService : IStreakService
     {
         try
         {
-            // 🆕 Usa horário de Brasília pra definir o "dia" (alinha com o front)
-            var hoje = AgoraBrasilia().Date;
+            var hoje = DateTime.SpecifyKind(AgoraBrasilia().Date, DateTimeKind.Utc);
 
             var leituraExistente = (await _leituraRepository.FindAsync(l =>
                 l.IdUsuario == usuarioId &&
@@ -212,11 +220,16 @@ public class StreakService : IStreakService
 
             if (leituraExistente != null)
             {
+                // 🆕 Garante que o livro está na lista, mas não duplica
                 if (!leituraExistente.LivrosLidos.Contains(livroId))
                     leituraExistente.LivrosLidos.Add(livroId);
 
-                if (paginas.HasValue) leituraExistente.PaginasLidas += paginas.Value;
-                if (minutos.HasValue) leituraExistente.MinutosOuvidos += minutos.Value;
+                // 🆕 Só soma se houver delta positivo
+                if (paginas.HasValue && paginas.Value > 0) 
+                    leituraExistente.PaginasLidas += paginas.Value;
+                
+                if (minutos.HasValue && minutos.Value > 0) 
+                    leituraExistente.MinutosOuvidos += minutos.Value;
 
                 leituraExistente.DataAtualizacao = DateTime.UtcNow;
                 await _leituraRepository.UpdateAsync(leituraExistente.Id, leituraExistente);

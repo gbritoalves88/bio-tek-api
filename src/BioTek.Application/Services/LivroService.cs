@@ -410,10 +410,12 @@ public class LivroService : ILivroService
             }
         }
 
+        await _streakService.RegistrarAtividadeAsync(usuarioId);
+
         // 🆕 Só registra atividade/streak se NÃO for pausa/retomada pura
         if (!apenasPausa)
         {
-            await _streakService.RegistrarAtividadeAsync(usuarioId);
+            //await _streakService.RegistrarAtividadeAsync(usuarioId);
 
             // ========== REGISTRAR LEITURA DO DIA ==========
             var teveMudanca = false;

@@ -60,3 +60,7 @@ docker-compose.override.yml
 # ==========================================
 **/node_modules/
 **/.angular/
+
+# Docker local
+docker-compose.yml
+.env

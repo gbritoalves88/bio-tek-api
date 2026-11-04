@@ -1,6 +1,8 @@
-# .NET
-bin/
-obj/
+# ==========================================
+# .NET - Arquivos gerados
+# ==========================================
+**/bin/
+**/obj/
 *.dll
 *.pdb
 *.exe
@@ -8,16 +10,53 @@ obj/
 *.suo
 *.cache
 *.vs/
+
+# ==========================================
+# IDEs
+# ==========================================
 .vscode/
 
+# ==========================================
 # Pacotes
+# ==========================================
 packages/
 *.nupkg
 
+# ==========================================
 # Testes
-TestResults/
+# ==========================================
+**/TestResults/
 *.trx
 
-# Segredos - IGNORAR TODOS os appsettings
-appsettings.Development.json
-firebase-service-account.json
+# ==========================================
+# Segredos e configurações locais
+# ==========================================
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/appsettings.Staging.json
+**/firebase-service-account.json
+
+# ==========================================
+# Docker - configurações locais
+# ==========================================
+docker-compose.override.yml
+
+# ==========================================
+# Variáveis de ambiente
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# Certificados e chaves privadas
+# ==========================================
+*.pfx
+*.p12
+*.key
+
+# ==========================================
+# Outros arquivos gerados
+# ==========================================
+**/node_modules/
+**/.angular/

@@ -10,27 +10,31 @@ public class SeguidorService : ISeguidorService
     private readonly IRepository<Usuario> _usuarioRepository;
     private readonly IRepository<Livro> _livroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
+    private readonly IUsuarioService _usuarioService;
 
     // 🆕 Cache do seguindo completo
     private static readonly Dictionary<string, (List<object> Data, DateTime Time)> _cacheSeguindoCompleto = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(10);
+
+
 
     public SeguidorService(
         IRepository<Seguidor> seguidorRepository,
         IRepository<Usuario> usuarioRepository,
         IRepository<Livro> livroRepository,
-        IRepository<AvaliacaoLivro> avaliacaoRepository)
+        IRepository<AvaliacaoLivro> avaliacaoRepository,
+        IUsuarioService usuarioService)
     {
         _seguidorRepository = seguidorRepository;
         _usuarioRepository = usuarioRepository;
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
+        _usuarioService = usuarioService;
     }
 
     public async Task<Seguidor> SeguirAsync(string idUsuario, string idSeguidor)
     {
-        // 🆕 Validação de entrada
         if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(idSeguidor))
             throw new ArgumentException("IDs são obrigatórios");
 
@@ -50,7 +54,7 @@ public class SeguidorService : ISeguidorService
 
         var novoSeguidor = new Seguidor
         {
-            Id = Guid.NewGuid().ToString(), // 🆕 Adicionar ID
+            Id = Guid.NewGuid().ToString(),
             IdUsuario = idUsuario,
             IdSeguidor = idSeguidor,
             DataCriacao = DateTime.UtcNow
@@ -58,7 +62,10 @@ public class SeguidorService : ISeguidorService
 
         await _seguidorRepository.AddAsync(novoSeguidor);
 
-        // 🆕 Limpar cache do seguindo completo
+        // 🆕 Limpa o cache do perfil da pessoa seguida
+        _usuarioService.LimparCachePerfil(idUsuario);
+
+        // Limpa o cache da lista de "Seguindo" de quem seguiu
         LimparCacheSeguindoCompleto(idSeguidor);
 
         return novoSeguidor;
@@ -66,7 +73,6 @@ public class SeguidorService : ISeguidorService
 
     public async Task<bool> DeixarDeSeguirAsync(string idUsuario, string idSeguidor)
     {
-        // 🆕 Validação de entrada
         if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(idSeguidor))
             throw new ArgumentException("IDs são obrigatórios");
 
@@ -78,7 +84,10 @@ public class SeguidorService : ISeguidorService
 
         await _seguidorRepository.DeleteAsync(item.Id);
 
-        // 🆕 Limpar cache do seguindo completo
+        // 🆕 Limpa o cache do perfil da pessoa
+        _usuarioService.LimparCachePerfil(idUsuario);
+
+        // Limpa o cache da lista de "Seguindo"
         LimparCacheSeguindoCompleto(idSeguidor);
 
         return true;

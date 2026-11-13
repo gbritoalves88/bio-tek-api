@@ -319,10 +319,11 @@ builder.Services.AddSingleton<IR2Service, R2Service>();
 // 5. SERVICES (regras de negócio)
 // ==========================================
 
+
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
+builder.Services.AddScoped<ISeguidorService, SeguidorService>();
 builder.Services.AddScoped<ILivroService, LivroService>();
 builder.Services.AddScoped<IAvaliacaoLivroService, AvaliacaoLivroService>();
-builder.Services.AddScoped<ISeguidorService, SeguidorService>();
 builder.Services.AddScoped<IComentarioLivroService, ComentarioLivroService>();
 builder.Services.AddScoped<IColecaoService, ColecaoService>();
 builder.Services.AddScoped<IComentarioColecaoService, ComentarioColecaoService>();

@@ -16,6 +16,9 @@ public interface ILivroService
     Task<List<object>> GetBibliotecaCompletaAsync(string usuarioId);
     Task<Livro?> AtualizarProgressoAsync(string id, string usuarioId, AtualizarProgressoRequest request);
     Task<List<object>> GetAtividadesPorUsuarioAsync(string usuarioId);
-    Task<object?> GetDetalhesInternoAsync(string id); // 🆕
+    Task<object?> GetDetalhesInternoPorTituloAsync(string titulo);
     Task<IEnumerable<object>> GetTodosAsync();
+       Task<object?> GetDetalhesInternoAsync(string id);
+    Task<IEnumerable<object>> BuscarPorTituloAsync(string termo);
+
 }

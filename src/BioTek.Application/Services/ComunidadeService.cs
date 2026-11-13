@@ -17,7 +17,7 @@ public class ComunidadeService : IComunidadeService
     // 🆕 Cache do feed por usuário
     private static readonly Dictionary<string, (List<AtividadeFeed> Feed, DateTime Time)> _cacheFeed = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(2);
 
     public ComunidadeService(
         IRepository<Livro> livroRepository,

@@ -93,14 +93,12 @@ namespace BioTek.Application.Services
             var livroRepository = scope.ServiceProvider.GetRequiredService<IRepository<Livro>>();
             var usuarioRepository = scope.ServiceProvider.GetRequiredService<IRepository<Usuario>>();
             var streakRepository = scope.ServiceProvider.GetRequiredService<IRepository<StreakUsuario>>();
-            var notificacaoService = scope.ServiceProvider.GetRequiredService<INotificacaoService>(); // 🆕
-            var notificacaoRepo = scope.ServiceProvider.GetRequiredService<IRepository<Notificacao>>();
+            var notificacaoService = scope.ServiceProvider.GetRequiredService<INotificacaoService>();
 
             var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
             var hoje = agoraBrasilia.Date;
             var seteDias = agoraBrasilia.AddDays(-7);
 
-            // Buscar usuários COM streak ativo (para NÃO enviar)
             var streaksAtivos = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
             var usuariosComStreak = new HashSet<string>(streaksAtivos.Select(s => s.IdUsuario));
 
@@ -120,48 +118,20 @@ namespace BioTek.Application.Services
                 .Select(g => g.OrderBy(x => Guid.NewGuid()).First())
                 .ToList();
 
-            _logger.LogInformation($"Livros 'Lendo' parados: {lendoPorUsuario.Count()}");
-
             foreach (var livro in lendoPorUsuario)
             {
                 try
                 {
-                    _logger.LogInformation($"Enviando lembrete de leitura para {livro.IdUsuario} sobre '{livro.Titulo}'");
-
                     var titulo = "📖 Continue sua leitura!";
                     var corpo = $"Você começou a ler '{livro.Titulo}' e está há um tempo sem atividade. Que tal continuar de onde parou?";
                     var url = $"/livros/{livro.Id}";
 
-                    // 🆕 Envia o push via NotificacaoService (com cooldown/limite)
+                    // 🆕 Apenas chama o Service. Ele cuida do push E da notificação interna.
                     var enviou = await notificacaoService.EnviarPushAsync(
-                        livro.IdUsuario,
-                        titulo,
-                        corpo,
-                        url,
-                        "reading_reminder"
+                        livro.IdUsuario, titulo, corpo, url, "reading_reminder"
                     );
 
-                    // 🆕 Cria notificação interna
-                    await notificacaoRepo.AddAsync(new Notificacao
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        IdUsuario = livro.IdUsuario,
-                        Tipo = "reading_reminder",
-                        Mensagem = corpo,
-                        IdOrigem = livro.Id,
-                        DataCriacao = DateTime.UtcNow,
-                        Lida = false
-                    });
-
-                    if (enviou)
-                    {
-                        enviados++;
-                        _logger.LogInformation($"Lembrete enviado para {livro.IdUsuario}");
-                    }
-                    else
-                    {
-                        _logger.LogInformation($"Push de leitura bloqueado para {livro.IdUsuario} (cooldown/limite)");
-                    }
+                    if (enviou) enviados++;
                 }
                 catch (Exception ex)
                 {
@@ -180,47 +150,22 @@ namespace BioTek.Application.Services
                 .Select(g => g.OrderBy(x => Guid.NewGuid()).First())
                 .ToList();
 
-            _logger.LogInformation($"Livros 'Quero ler' parados: {queroLerPorUsuario.Count()}");
-
             foreach (var livro in queroLerPorUsuario)
             {
                 try
                 {
                     var usuario = await usuarioRepository.GetByIdAsync(livro.IdUsuario);
-                    if (usuario == null || !usuario.Ativo)
-                        continue;
-
-                    _logger.LogInformation($"Enviando 'Comece a ler' para {livro.IdUsuario} sobre '{livro.Titulo}'");
+                    if (usuario == null || !usuario.Ativo) continue;
 
                     var titulo = "📚 Comece sua leitura!";
                     var corpo = $"Você adicionou '{livro.Titulo}' mas ainda não começou. Que tal hoje?";
                     var url = $"/livros/{livro.Id}";
 
-                    // 🆕 Envia o push via NotificacaoService (com cooldown/limite)
                     var enviou = await notificacaoService.EnviarPushAsync(
-                        livro.IdUsuario,
-                        titulo,
-                        corpo,
-                        url,
-                        "start_reading"
+                        livro.IdUsuario, titulo, corpo, url, "start_reading"
                     );
 
-                    // 🆕 Cria notificação interna
-                    await notificacaoRepo.AddAsync(new Notificacao
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        IdUsuario = livro.IdUsuario,
-                        Tipo = "start_reading",
-                        Mensagem = corpo,
-                        IdOrigem = livro.Id,
-                        DataCriacao = DateTime.UtcNow,
-                        Lida = false
-                    });
-
-                    if (enviou)
-                    {
-                        enviados++;
-                    }
+                    if (enviou) enviados++;
                 }
                 catch (Exception ex)
                 {
@@ -236,42 +181,19 @@ namespace BioTek.Application.Services
                 .Where(u => !todosLivros.Any(l => l.IdUsuario == u.Id))
                 .ToList();
 
-            _logger.LogInformation($"Usuários sem livros: {usuariosSemLivro.Count}");
-
             foreach (var usuario in usuariosSemLivro)
             {
                 try
                 {
-                    _logger.LogInformation($"Enviando 'Adicione um livro' para {usuario.Id}");
-
                     var titulo = "📕 Que tal começar?";
                     var corpo = "Adicione um livro no Bliteca e comece sua jornada de leitura!";
                     var url = "/inicio";
 
-                    // 🆕 Envia o push via NotificacaoService (com cooldown/limite)
                     var enviou = await notificacaoService.EnviarPushAsync(
-                        usuario.Id,
-                        titulo,
-                        corpo,
-                        url,
-                        "add_book"
+                        usuario.Id, titulo, corpo, url, "add_book"
                     );
 
-                    // 🆕 Cria notificação interna
-                    await notificacaoRepo.AddAsync(new Notificacao
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        IdUsuario = usuario.Id,
-                        Tipo = "add_book",
-                        Mensagem = corpo,
-                        DataCriacao = DateTime.UtcNow,
-                        Lida = false
-                    });
-
-                    if (enviou)
-                    {
-                        enviados++;
-                    }
+                    if (enviou) enviados++;
                 }
                 catch (Exception ex)
                 {

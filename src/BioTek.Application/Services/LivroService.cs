@@ -188,6 +188,9 @@ public class LivroService : ILivroService
         if (livro.Status == 0)
             livro.Status = existente.Status;
 
+        if (string.IsNullOrEmpty(livro.IdColecao))
+            livro.IdColecao = existente.IdColecao;
+
         // ========== CAMPOS DE PROGRESSO (sempre preservados) ==========
         livro.Progresso = existente.Progresso;
         livro.PaginaAtual = existente.PaginaAtual;
@@ -410,37 +413,34 @@ public class LivroService : ILivroService
             }
         }
 
-        await _streakService.RegistrarAtividadeAsync(usuarioId);
+       // await _streakService.RegistrarAtividadeAsync(usuarioId);
 
         // 🆕 Só registra atividade/streak se NÃO for pausa/retomada pura
         if (!apenasPausa)
         {
-            //await _streakService.RegistrarAtividadeAsync(usuarioId);
-
-            // ========== REGISTRAR LEITURA DO DIA ==========
             var teveMudanca = false;
             var paginasDelta = 0;
             var minutosDelta = 0;
 
-            if (request.PaginaAtual.HasValue && request.PaginaAtual.Value != paginaAnterior)
+            // ✅ Página AUMENTOU (não só mudou)
+            if (request.PaginaAtual.HasValue && request.PaginaAtual.Value > paginaAnterior)
             {
                 teveMudanca = true;
-                var delta = request.PaginaAtual.Value - paginaAnterior;
-                if (delta > 0) paginasDelta = delta;
+                paginasDelta = request.PaginaAtual.Value - paginaAnterior;
             }
 
-            if (request.MinutoAtual.HasValue && request.MinutoAtual.Value != minutoAnterior)
+            // ✅ Minuto AUMENTOU
+            if (request.MinutoAtual.HasValue && request.MinutoAtual.Value > minutoAnterior)
             {
                 teveMudanca = true;
-                var delta = request.MinutoAtual.Value - minutoAnterior;
-                if (delta > 0) minutosDelta = delta;
+                minutosDelta = request.MinutoAtual.Value - minutoAnterior;
             }
 
-            if (request.Pausado.HasValue && request.Pausado.Value != pausadoAnterior)
+            // ✅ % AUMENTOU (pra frente)
+            if (request.Progresso.HasValue && request.Progresso.Value > (progressoAnterior ?? 0))
+            {
                 teveMudanca = true;
-
-            if (request.Progresso.HasValue && request.Progresso.Value != progressoAnterior)
-                teveMudanca = true;
+            }
 
             if (teveMudanca)
             {
@@ -714,6 +714,139 @@ public class LivroService : ILivroService
             return null;
         }
     }
+
+    // ============ BUSCA POR TÍTULO (LIVROS + CATÁLOGO) ============
+    public async Task<IEnumerable<object>> BuscarPorTituloAsync(string termo)
+    {
+        // O termo já chega limpo (sem hífens e minúsculo) do Controller
+        var termoLower = termo.ToLower().Trim();
+
+        // 1. Busca na estante do usuário (tabela Livros)
+        var livros = await _livroRepository.FindAsync(l => 
+            l.Titulo != null && l.Titulo.ToLower().Contains(termoLower));
+        
+        var livrosFormatados = livros.Select(l => (object)new
+        {
+            l.Id,
+            l.Titulo,
+            l.Autor,
+            l.Imagem,
+            l.CodigoBarras,
+            l.Generos,
+            l.AnoPublicacao,
+            l.Editora,
+            l.Descricao,
+            IsCatalogo = false
+        }).ToList();
+
+        // 2. Busca no Catálogo global (tabela Catalogo)
+        var catalogos = await _catalogoRepository.FindAsync(c => 
+            c.Titulo != null && c.Titulo.ToLower().Contains(termoLower));
+
+        var catalogosFormatados = catalogos.Select(c => (object)new
+        {
+            c.Id,
+            c.Titulo,
+            c.Autor,
+            c.Imagem,
+            c.CodigoBarras,
+            c.Generos,
+            c.AnoPublicacao,
+            c.Editora,
+            c.Descricao,
+            IsCatalogo = true
+        }).ToList();
+
+        // 3. Junta os dois resultados, remove duplicados e limita a 20
+        var todosResultados = livrosFormatados.Concat(catalogosFormatados)
+            .GroupBy(x => ((dynamic)x).Titulo.ToLower())
+            .Select(g => g.First())
+            .OrderBy(x => ((dynamic)x).Titulo)
+            .Take(20)
+            .ToList();
+
+        return todosResultados;
+    }
+
+    
+    // ============ DETALHES POR TÍTULO ============
+    public async Task<object?> GetDetalhesInternoPorTituloAsync(string termo)
+    {
+        if (string.IsNullOrWhiteSpace(termo)) return null;
+
+        var termoLower = termo.ToLower().Trim();
+
+        // 1. Tenta achar no Catálogo
+        var catalogos = await _catalogoRepository.FindAsync(c => 
+            c.Titulo != null && c.Titulo.ToLower().Contains(termoLower));
+        
+        var catalogo = catalogos.FirstOrDefault();
+
+        if (catalogo != null)
+        {
+            var livrosMesmoTitulo = await _livroRepository.FindAsync(l => 
+                l.Titulo != null && l.Titulo.ToLower() == catalogo.Titulo.ToLower());
+
+            var avaliacoes = await _avaliacaoLivroRepository.FindAsync(a => a.IdLivro == catalogo.Id);
+
+            return new
+            {
+                catalogo.Id,
+                catalogo.Titulo,
+                catalogo.Autor,
+                catalogo.Descricao,
+                catalogo.Imagem,
+                catalogo.CodigoBarras,
+                catalogo.Fonte,
+                catalogo.FonteId,
+                catalogo.Generos,
+                catalogo.AnoPublicacao,
+                catalogo.Editora,
+                catalogo.NumeroPaginas,
+                catalogo.Idioma,
+                AvaliacaoMedia = avaliacoes.Any() ? Math.Round(avaliacoes.Average(a => (int)a.Nota), 1) : 0,
+                TotalAvaliacoes = avaliacoes.Count(),
+                TotalNaBiblioteca = livrosMesmoTitulo.Count(),
+                TotalLendo = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lendo),
+                TotalLido = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.Lido),
+                TotalQueroLer = livrosMesmoTitulo.Count(l => l.Status == StatusLeitura.QueroLer)
+            };
+        }
+
+        // 2. Se não achou no catálogo, tenta na biblioteca pessoal
+        var livros = await _livroRepository.FindAsync(l => 
+            l.Titulo != null && l.Titulo.ToLower().Contains(termoLower));
+        
+        var livro = livros.FirstOrDefault();
+        if (livro == null) return null;
+
+        var livrosMesmoTituloLocal = await _livroRepository.FindAsync(l => 
+            l.Titulo != null && l.Titulo.ToLower() == livro.Titulo.ToLower());
+
+        var avaliacoesLivro = await _avaliacaoLivroRepository.FindAsync(a => a.IdLivro == livro.Id);
+
+        return new
+        {
+            livro.Id,
+            livro.Titulo,
+            livro.Autor,
+            livro.Descricao,
+            livro.Imagem,
+            livro.CodigoBarras,
+            livro.Generos,
+            livro.AnoPublicacao,
+            livro.Editora,
+            livro.Idioma,
+            livro.TotalPaginas,
+            AvaliacaoMedia = avaliacoesLivro.Any() ? Math.Round(avaliacoesLivro.Average(a => (int)a.Nota), 1) : 0,
+            TotalAvaliacoes = avaliacoesLivro.Count(),
+            TotalNaBiblioteca = livrosMesmoTituloLocal.Count(),
+            TotalLendo = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.Lendo),
+            TotalLido = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.Lido),
+            TotalQueroLer = livrosMesmoTituloLocal.Count(l => l.Status == StatusLeitura.QueroLer)
+        };
+    }
+
 
     private string GetAutor(JsonElement book)
     {

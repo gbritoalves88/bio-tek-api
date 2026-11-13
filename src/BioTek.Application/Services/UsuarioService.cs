@@ -10,6 +10,7 @@ public class UsuarioService : IUsuarioService
     private readonly IRepository<Livro> _livroRepository;
     private readonly IRepository<AvaliacaoLivro> _avaliacaoRepository;
     private readonly IRepository<ComentarioLivro> _comentarioRepository;
+    private readonly IRepository<Seguidor>_seguidorRepository;
 
     // 🆕 Cache do perfil completo
     private static readonly Dictionary<string, (object Data, DateTime Time)> _cachePerfil = new();
@@ -22,13 +23,15 @@ public class UsuarioService : IUsuarioService
         IRepository<Livro> livroRepository,
         IRepository<AvaliacaoLivro> avaliacaoRepository,
         IRepository<ComentarioLivro> comentarioRepository,
-        IRepository<Colecao> colecaoRepository)
+        IRepository<Colecao> colecaoRepository,
+        IRepository<Seguidor> seguidorRepository)
     {
         _usuarioRepository = usuarioRepository;
         _livroRepository = livroRepository;
         _avaliacaoRepository = avaliacaoRepository;
         _comentarioRepository = comentarioRepository;        
         _colecaoRepository = colecaoRepository;
+        _seguidorRepository = seguidorRepository;
     }
 
     public async Task<bool> DeletarAsync(string id)
@@ -47,9 +50,8 @@ public class UsuarioService : IUsuarioService
         return true;
     }
 
-    public async Task<Usuario> CriarAsync(Usuario usuario)
+       public async Task<Usuario> CriarAsync(Usuario usuario)
     {
-        // 🆕 Validação de entrada
         if (usuario == null)
             throw new ArgumentException("Usuário é obrigatório");
 
@@ -64,16 +66,24 @@ public class UsuarioService : IUsuarioService
         if (emailExiste.Any())
             throw new InvalidOperationException("Email já cadastrado");
 
-        // 🔹 Regra: Nickname único
-        var nicknameExiste = await _usuarioRepository.FindAsync(u => u.Nickname == usuario.Nickname);
-        if (nicknameExiste.Any())
+        // 🆕 LIMPEZA: Remove espaços e força minúsculo
+        var nickLimpo = usuario.Nickname.Trim().ToLower();
+
+        // 🆕 VALIDAÇÃO BLINDADA: Verifica ignorando maiúsculas/minúsculas
+        var todosUsuarios = await _usuarioRepository.GetAllAsync(); // Pega todos
+        var nicknameExiste = todosUsuarios.Any(u => u.Nickname.Trim().ToLower() == nickLimpo);
+
+        if (nicknameExiste)
             throw new InvalidOperationException("Nickname já está em uso");
 
+        // Salva o nick já limpo
+        usuario.Nickname = nickLimpo;
+        
         usuario.Id = Guid.NewGuid().ToString();
         usuario.DataCriacao = DateTime.UtcNow;
         usuario.Ativo = true;
-        usuario.Adm = false; // 🆕 Força Adm=false no cadastro
-        usuario.AceitouTermos = false; // 🆕 Força termos não aceitos
+        usuario.Adm = false;
+        usuario.AceitouTermos = false;
         usuario.DataAceiteTermos = null;
 
         await _usuarioRepository.AddAsync(usuario);
@@ -91,23 +101,56 @@ public class UsuarioService : IUsuarioService
         var existente = await _usuarioRepository.GetByIdAsync(id);
         if (existente == null) return null;
 
-        // Preserva dados que não podem ser alterados
-        usuario.Email = existente.Email; // 🆕 Email não pode ser alterado
-        usuario.Adm = existente.Adm; // 🆕 Adm não pode ser alterado
+        // ========== 🆕 BLINDAGEM DO NICKNAME ==========
+        var nickLimpo = usuario.Nickname?.Trim().ToLower();
+
+        if (!string.IsNullOrEmpty(nickLimpo) && existente.Nickname.Trim().ToLower() != nickLimpo)
+        {
+            var todosUsuarios = await _usuarioRepository.GetAllAsync();
+            
+            // Verifica se alguém (que não seja o próprio usuário) já tem esse nick
+            var nickEmUso = todosUsuarios.Any(u => 
+                u.Id != id && 
+                u.Nickname != null &&
+                u.Nickname.Trim().ToLower() == nickLimpo);
+
+            if (nickEmUso)
+                throw new InvalidOperationException("Este nickname já está em uso por outro leitor");
+
+            existente.Nickname = nickLimpo; // Atualiza com o nick limpo
+        }
+
+        // ========== CAMPOS NÃO EDITÁVEIS (Preservados do banco) ==========
+        usuario.Email = existente.Email; // Email não pode ser alterado
+        usuario.Adm = existente.Adm;     // Adm não pode ser alterado
         usuario.DataCriacao = existente.DataCriacao;
         usuario.IdGoogle = existente.IdGoogle ?? usuario.IdGoogle;
         usuario.IdFacebook = existente.IdFacebook ?? usuario.IdFacebook;
+        usuario.RefreshToken = existente.RefreshToken;
 
-        // 🆕 Atualiza campos editáveis
-        existente.Nome = usuario.Nome;
-        existente.Nickname = usuario.Nickname;
-        existente.Descricao = usuario.Descricao;
-        existente.Avatar = usuario.Avatar;
-        existente.Tema = usuario.Tema;
-        existente.Ativo = usuario.Ativo;
+        // ========== CAMPOS EDITÁVEIS ==========
+        existente.Nome = !string.IsNullOrWhiteSpace(usuario.Nome) 
+            ? usuario.Nome 
+            : existente.Nome;
 
-        // 🆕 Só atualiza AceitouTermos se for true (nunca volta para false)
-        if (usuario.AceitouTermos)
+        existente.Descricao = usuario.Descricao ?? existente.Descricao;
+        
+        existente.Avatar = !string.IsNullOrWhiteSpace(usuario.Avatar) 
+            ? usuario.Avatar 
+            : existente.Avatar;
+
+        // Atualiza o tema apenas se vier um valor válido
+        if (usuario.Tema > 0)
+            existente.Tema = usuario.Tema;
+
+        // Atualiza o status "Ativo" (usado quando o usuário desativa a conta ou o admin faz algo)
+        // Se não vier nada no body, mantém o que está no banco
+        if (usuario.Ativo != existente.Ativo)
+            existente.Ativo = usuario.Ativo;
+
+        // ========== REGRA DE TERMOS ==========
+        // Só atualiza AceitouTermos se for true (nunca volta para false)
+        if (usuario.AceitouTermos && !existente.AceitouTermos)
         {
             existente.AceitouTermos = true;
             existente.DataAceiteTermos = usuario.DataAceiteTermos ?? DateTime.UtcNow;
@@ -156,7 +199,7 @@ public class UsuarioService : IUsuarioService
         return usuarios.FirstOrDefault();
     }
 
-    public async Task<object?> GetPerfilCompletoAsync(string usuarioId)
+      public async Task<object?> GetPerfilCompletoAsync(string usuarioId, string? usuarioLogadoId = null)
     {
         if (string.IsNullOrEmpty(usuarioId))
             return null;
@@ -179,22 +222,22 @@ public class UsuarioService : IUsuarioService
         {
             Livros = _livroRepository.FindAsync(l => l.IdUsuario == usuarioId),
             Avaliacoes = _avaliacaoRepository.FindAsync(a => a.IdUsuario == usuarioId),
-            Colecoes = _colecaoRepository.FindAsync(c => c.IdUsuario == usuarioId)  // 🆕
+            Colecoes = _colecaoRepository.FindAsync(c => c.IdUsuario == usuarioId)
         };
 
-        await Task.WhenAll(tarefas.Livros, tarefas.Avaliacoes, tarefas.Colecoes);  // 🆕
+        await Task.WhenAll(tarefas.Livros, tarefas.Avaliacoes, tarefas.Colecoes);
 
         var livros = await tarefas.Livros;
         var avaliacoes = await tarefas.Avaliacoes;
-        var colecoes = await tarefas.Colecoes;  // 🆕
+        var colecoes = await tarefas.Colecoes;
 
-        // 🆕 Buscar comentários apenas dos livros do usuário
+        // Buscar comentários apenas dos livros do usuário
         var idsLivros = livros.Select(l => l.Id).ToHashSet();
         var comentarios = idsLivros.Any()
             ? await _comentarioRepository.FindAsync(c => idsLivros.Contains(c.IdLivro))
             : new List<ComentarioLivro>();
 
-        // 🆕 Buscar usuários apenas dos comentários
+        // Buscar usuários apenas dos comentários
         var idsUsuarios = comentarios.Select(c => c.IdUsuario).Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
         var usuariosComentarios = idsUsuarios.Any()
             ? await _usuarioRepository.FindAsync(u => idsUsuarios.Contains(u.Id))
@@ -202,7 +245,7 @@ public class UsuarioService : IUsuarioService
 
         var usuarioMap = usuariosComentarios.ToDictionary(u => u.Id);
 
-        // 🆕 Agrupar dados para evitar N+1
+        // Agrupar dados para evitar N+1
         var avaliacoesPorLivro = avaliacoes
             .GroupBy(a => a.IdLivro)
             .ToDictionary(g => g.Key, g => g.FirstOrDefault());
@@ -211,13 +254,23 @@ public class UsuarioService : IUsuarioService
             .GroupBy(c => c.IdLivro)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        // 🆕 VERIFICA SE QUEM ESTÁ LOGADO JÁ SEGUE ESSE PERFIL
+        bool segue = false;
+        if (!string.IsNullOrEmpty(usuarioLogadoId) && usuarioLogadoId != usuarioId)
+        {
+            var segueExiste = await _seguidorRepository.FindAsync(s => 
+                s.IdSeguidor == usuarioLogadoId && 
+                s.IdUsuario == usuarioId);
+            segue = segueExiste.Any();
+        }
+
         var resultado = new
         {
             usuario.Id,
             usuario.IdGoogle,
             usuario.Nome,
             usuario.Nickname,
-            usuario.Email, // 🆕 Avaliar se deve expor email
+            usuario.Email,
             usuario.Descricao,
             usuario.Avatar,
             usuario.Tema,
@@ -227,13 +280,17 @@ public class UsuarioService : IUsuarioService
             usuario.DataAtualizacao,
             usuario.AceitouTermos,
             usuario.DataAceiteTermos,
+            
+            // 🆕 AQUI ESTÁ O CAMPO QUE O FRONTEND ESPERA
+            Segue = segue,
+
             QuantidadeLivros = livros.Count(),
             QuantidadeLivrosLidos = livros.Count(l => l.Status == StatusLeitura.Lido),
             MediaAvaliacoes = avaliacoes.Any()
                 ? Math.Round(avaliacoes.Average(a => (int)a.Nota), 1)
                 : 0,
 
-            // 🆕 Coleções do usuário
+            // Coleções do usuário
             Colecoes = colecoes.Select(c =>
             {
                 var livrosDaColecao = livros

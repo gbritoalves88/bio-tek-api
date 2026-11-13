@@ -134,15 +134,22 @@ public class UsuarioController : ControllerBase
         var usuarioLogadoId = GetUsuarioId();
         var usuarioLogado = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
 
-        // 🆕 Verificar se é o dono ou admin
         if (usuarioLogado == null || (usuarioLogado.Id != id && !usuarioLogado.Adm))
             return Forbid();
 
-        var atualizado = await _usuarioService.AtualizarAsync(id, usuario);
-        if (atualizado == null)
-            return NotFound();
+        try // 🆕 Adicionar Try/Catch para pegar a duplicidade
+        {
+            var atualizado = await _usuarioService.AtualizarAsync(id, usuario);
+            if (atualizado == null)
+                return NotFound();
 
-        return NoContent();
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Retorna 400 com a mensagem "Este nickname já está em uso"
+            return BadRequest(new { mensagem = ex.Message });
+        }
     }
 
     /// <summary>
@@ -180,7 +187,19 @@ public class UsuarioController : ControllerBase
         if (string.IsNullOrEmpty(id))
             return BadRequest(new { mensagem = "ID é obrigatório" });
 
-        var resultado = await _usuarioService.GetPerfilCompletoAsync(id);
+        // 🆕 Pega o ID de quem está logado (se tiver token)
+        string? usuarioLogadoId = null;
+        try 
+        { 
+            usuarioLogadoId = GetUsuarioId(); 
+        } 
+        catch (UnauthorizedAccessException) 
+        { 
+            // Se não estiver logado, segue o fluxo como anônimo
+        }
+
+        var resultado = await _usuarioService.GetPerfilCompletoAsync(id, usuarioLogadoId);
+        
         if (resultado == null) return NotFound();
         return Ok(resultado);
     }

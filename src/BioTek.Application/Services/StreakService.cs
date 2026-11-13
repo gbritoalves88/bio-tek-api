@@ -214,21 +214,19 @@ public class StreakService : IStreakService
         {
             var hoje = DateTime.SpecifyKind(AgoraBrasilia().Date, DateTimeKind.Utc);
 
+            // ---------- 1. Grava no histórico (Leitura) ----------
             var leituraExistente = (await _leituraRepository.FindAsync(l =>
-                l.IdUsuario == usuarioId &&
-                l.Data == hoje)).FirstOrDefault();
+                l.IdUsuario == usuarioId && l.Data == hoje)).FirstOrDefault();
 
             if (leituraExistente != null)
             {
-                // 🆕 Garante que o livro está na lista, mas não duplica
                 if (!leituraExistente.LivrosLidos.Contains(livroId))
                     leituraExistente.LivrosLidos.Add(livroId);
 
-                // 🆕 Só soma se houver delta positivo
-                if (paginas.HasValue && paginas.Value > 0) 
+                if (paginas.HasValue && paginas.Value > 0)
                     leituraExistente.PaginasLidas += paginas.Value;
-                
-                if (minutos.HasValue && minutos.Value > 0) 
+
+                if (minutos.HasValue && minutos.Value > 0)
                     leituraExistente.MinutosOuvidos += minutos.Value;
 
                 leituraExistente.DataAtualizacao = DateTime.UtcNow;
@@ -247,6 +245,48 @@ public class StreakService : IStreakService
                     DataCriacao = DateTime.UtcNow
                 });
             }
+
+            // ---------- 2. Atualiza o StreakUsuario (card da Home) ----------
+            var streaks = await _streakRepository.FindAsync(s => s.IdUsuario == usuarioId);
+            var streak = streaks.FirstOrDefault();
+
+            if (streak == null)
+            {
+                await _streakRepository.AddAsync(new StreakUsuario
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    IdUsuario = usuarioId,
+                    SequenciaAtual = 1,
+                    MaiorSequencia = 1,
+                    UltimaDataAtividade = hoje,
+                    DataCriacao = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                var ultimaData = streak.UltimaDataAtividade.HasValue
+                    ? DateTime.SpecifyKind(streak.UltimaDataAtividade.Value.Date, DateTimeKind.Utc)
+                    : (DateTime?)null;
+
+                if (ultimaData != hoje) // já contou hoje → não mexe
+                {
+                    if (ultimaData == hoje.AddDays(-1))
+                    {
+                        streak.SequenciaAtual++;
+                        streak.MaiorSequencia = Math.Max(streak.MaiorSequencia, streak.SequenciaAtual);
+                    }
+                    else
+                    {
+                        streak.SequenciaAtual = 1;
+                    }
+
+                    streak.UltimaDataAtividade = hoje;
+                    streak.DataAtualizacao = DateTime.UtcNow;
+                    await _streakRepository.UpdateAsync(streak.Id, streak);
+                }
+            }
+
+            LimparCache(usuarioId);
         }
         catch (Exception ex)
         {

@@ -91,13 +91,10 @@ public class StreakNotificationBackgroundService : BackgroundService
 
         var streakRepository = scope.ServiceProvider.GetRequiredService<IRepository<StreakUsuario>>();
         var usuarioRepository = scope.ServiceProvider.GetRequiredService<IRepository<Usuario>>();
-        var notificacaoService = scope.ServiceProvider.GetRequiredService<INotificacaoService>(); // 🆕
-        var notificacaoInternaRepo = scope.ServiceProvider.GetRequiredService<IRepository<Notificacao>>();
+        var notificacaoService = scope.ServiceProvider.GetRequiredService<INotificacaoService>();
 
         var agoraBrasilia = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, FusoBrasilia);
         var hoje = agoraBrasilia.Date;
-
-        _logger.LogInformation("Verificando streaks para lembrete...");
 
         var streaks = await streakRepository.FindAsync(s => s.SequenciaAtual > 0);
         _logger.LogInformation($"Total de streaks ativos encontrados: {streaks.Count()}");
@@ -119,34 +116,15 @@ public class StreakNotificationBackgroundService : BackgroundService
                 var corpo = $"Sua sequência está em {streak.SequenciaAtual} dias. Leia um pouco hoje para continuar seu hábito.";
                 var url = "/inicio";
 
-                // 🆕 Envia o push via NotificacaoService (com cooldown/limite)
+                // 🆕 Apenas chama o Service. Ele cuida do push E da notificação interna.
                 var enviou = await notificacaoService.EnviarPushAsync(
-                    streak.IdUsuario,
-                    titulo,
-                    corpo,
-                    url,
-                    "streak"
+                    streak.IdUsuario, titulo, corpo, url, "streak"
                 );
-
-                // 🆕 Cria notificação interna independente do push ter sido enviado
-                await notificacaoInternaRepo.AddAsync(new Notificacao
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    IdUsuario = streak.IdUsuario,
-                    Tipo = "streak",
-                    Mensagem = corpo,
-                    DataCriacao = DateTime.UtcNow,
-                    Lida = false
-                });
 
                 if (enviou)
                 {
                     enviados++;
                     _logger.LogInformation($"Lembrete de streak enviado para {usuario.Nickname} ({streak.SequenciaAtual} dias)");
-                }
-                else
-                {
-                    _logger.LogInformation($"Push de streak bloqueado para {usuario.Nickname} (cooldown/limite)");
                 }
             }
             catch (Exception ex)

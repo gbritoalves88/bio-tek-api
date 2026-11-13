@@ -121,12 +121,10 @@ public class LivroController : ControllerBase
         {
             var usuarioId = GetUsuarioId();
 
-            // Verifica se o livro pertence ao usuário
             var existente = await _livroService.GetPorIdAsync(id);
             if (existente == null || existente.IdUsuario != usuarioId)
                 return NotFound(new { mensagem = "Livro não encontrado" });
 
-            // 🆕 Options com camelCase
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -138,7 +136,7 @@ public class LivroController : ControllerBase
             if (livro == null)
                 return BadRequest(new { mensagem = "Dados inválidos" });
 
-            // Extrai estrelas do body (não existe no Livro)
+            // Extrai estrelas
             int? estrelas = null;
             if (body.TryGetProperty("estrelas", out var estrelasElement) &&
                 estrelasElement.ValueKind != JsonValueKind.Null)
@@ -146,20 +144,29 @@ public class LivroController : ControllerBase
                 estrelas = estrelasElement.GetInt32();
             }
 
-            // 🆕 PRESERVA IdColecao do body, porque o serializer pode não mapear
+            // 🆕 BLINDAGEM DO IDCOLECAO: Impede que o livro saia da prateleira sem querer
             if (body.TryGetProperty("idColecao", out var idColecaoElement))
             {
                 if (idColecaoElement.ValueKind == JsonValueKind.Null)
                 {
-                    livro.IdColecao = null;
+                    // Se o front mandou null, mas o banco tem uma coleção, a gente PRESERVA
+                    // A menos que o front envie uma string vazia "" para remover explicitamente
+                    livro.IdColecao = existente.IdColecao; 
                 }
                 else
                 {
-                    livro.IdColecao = idColecaoElement.GetString();
+                    var novaColecao = idColecaoElement.GetString();
+                    // Se a nova coleção for vazia, aí sim o usuário quer remover da prateleira
+                    livro.IdColecao = string.IsNullOrWhiteSpace(novaColecao) ? null : novaColecao;
                 }
             }
+            else
+            {
+                // Se o body nem tem o campo, preserva o que está no banco
+                livro.IdColecao = existente.IdColecao;
+            }
 
-            // 🆕 Preserva Status se não veio no body
+            // Preserva Status se não veio no body
             if (!body.TryGetProperty("status", out _) || 
                 body.GetProperty("status").ValueKind == JsonValueKind.Null)
             {
@@ -249,7 +256,8 @@ public class LivroController : ControllerBase
         // 🆕 Valida URL (evita SSRF)
         if (!url.StartsWith("https://covers.openlibrary.org") && 
             !url.StartsWith("http://books.google.com") &&
-            !url.StartsWith("https://i.ibb.co"))
+            !url.StartsWith("https://i.ibb.co") &&
+            !url.StartsWith("https://img.bliteca.com.br"))
             return BadRequest(new { mensagem = "URL não permitida" });
 
         try
@@ -288,4 +296,21 @@ public class LivroController : ControllerBase
         
         return Ok(detalhes);
     }
+
+
+    [AllowAnonymous]
+    [HttpGet("buscar-por-titulo")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> BuscarPorTitulo([FromQuery] string q)
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
+            return BadRequest(new { mensagem = "O termo de busca deve ter pelo menos 3 caracteres." });
+
+        // 🆕 Tratamento: Troca hífens por espaço (caso venha da URL) e deixa minúsculo
+        var termoLimpo = q.Replace("-", " ").Trim().ToLower();
+
+        var resultados = await _livroService.BuscarPorTituloAsync(termoLimpo);
+        return Ok(resultados);
+    }
+
 }

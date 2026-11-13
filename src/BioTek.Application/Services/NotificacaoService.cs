@@ -376,7 +376,7 @@ public class NotificacaoService : INotificacaoService
             if (string.IsNullOrEmpty(idUsuario))
                 return false;
 
-            // Verifica cooldown/limite conforme o tipo
+            // 1. Verifica cooldown/limite conforme o tipo
             if (TiposSociais.Contains(tipo))
             {
                 var jaEnviou = await JaEnviouRecentemente(idUsuario, tipo, COOLDOWN_SOCIAL);
@@ -396,21 +396,48 @@ public class NotificacaoService : INotificacaoService
                 }
             }
 
+            // 2. Cria a notificação interna no banco ANTES de tentar enviar o push.
+            // Isso garante que o usuário veja a notificação no app, mesmo se o push falhar.
+            var notificacao = new Notificacao
+            {
+                Id = Guid.NewGuid().ToString(),
+                IdUsuario = idUsuario,
+                Tipo = tipo,
+                Mensagem = corpo,
+                DataCriacao = DateTime.UtcNow,
+                Lida = false
+            };
+
+            await _notificacaoRepository.AddAsync(notificacao);
+            LimparCacheNaoLidas(idUsuario);
+
+            // 3. Busca os tokens ativos do usuário
             var subs = await _subscriptionRepository.FindAsync(s =>
                 s.UserId == idUsuario && s.IsActive);
 
             var tokens = subs.Select(s => s.Token).ToList();
 
             if (tokens.Count == 0)
+            {
+                _logger.LogInformation($"Nenhum token ativo para o usuário {idUsuario}. Notificação interna criada, mas push não enviado.");
                 return false;
+            }
 
+            // 4. Envia o push pelo Firebase
             var data = new Dictionary<string, string>
             {
                 { "type", tipo },
                 { "url", url }
             };
 
-            return await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
+            var enviouPush = await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
+
+            if (!enviouPush)
+            {
+                _logger.LogWarning($"Falha ao enviar push para {idUsuario}, mas a notificação interna foi registrada.");
+            }
+
+            return enviouPush;
         }
         catch (Exception ex)
         {

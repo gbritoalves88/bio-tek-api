@@ -45,34 +45,26 @@ public class SeguidorController : ControllerBase
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> Seguir(string idUsuario)
     {
-        if (string.IsNullOrEmpty(idUsuario))
-            return BadRequest(new { mensagem = "ID do usuário é obrigatório" });
-
         var usuarioLogadoId = GetUsuarioId();
-        
         try
         {
             var resultado = await _seguidorService.SeguirAsync(idUsuario, usuarioLogadoId);
-
-            // Disparar notificação
-            var usuario = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
-
-            await _notificacaoService.CriarNotificacaoSeguidor(
-                idUsuario,
-                usuarioLogadoId,
-                usuario?.Nome ?? "Alguém"
-            );
             
+            // 🆕 Limpa o cache do perfil AQUI, e não no Service
+            _usuarioService.LimparCachePerfil(idUsuario); 
+
+            // Notificação em background (opcional, mas ajuda a não travar)
+            _ = Task.Run(async () => {
+                using var scope = HttpContext.RequestServices.CreateScope();
+                var notificacao = scope.ServiceProvider.GetRequiredService<INotificacaoService>();
+                var usuario = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
+                await notificacao.CriarNotificacaoSeguidor(idUsuario, usuarioLogadoId, usuario?.Nome ?? "Alguém");
+            });
+
             return Ok(resultado);
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { mensagem = ex.Message });
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { mensagem = ex.Message });
-        }
+        catch (Exception ex) { return BadRequest(new { mensagem = ex.Message }); }
+
     }
 
     /// <summary>
@@ -82,11 +74,12 @@ public class SeguidorController : ControllerBase
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> DeixarDeSeguir(string idUsuario)
     {
-        if (string.IsNullOrEmpty(idUsuario))
-            return BadRequest(new { mensagem = "ID do usuário é obrigatório" });
+         var result = await _seguidorService.DeixarDeSeguirAsync(idUsuario, GetUsuarioId());
+    
+        // 🆕 Limpa o cache
+        if (result) _usuarioService.LimparCachePerfil(idUsuario);
 
-        var result = await _seguidorService.DeixarDeSeguirAsync(idUsuario, GetUsuarioId());
-        return result ? NoContent() : NotFound(new { mensagem = "Você não segue este usuário" });
+        return result ? NoContent() : NotFound();
     }
 
     /// <summary>

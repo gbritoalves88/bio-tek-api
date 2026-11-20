@@ -21,7 +21,6 @@ public class NotificacaoService : INotificacaoService
     private static readonly object _cacheLock = new();
     private static readonly TimeSpan CACHE_DURATION = TimeSpan.FromSeconds(30);
 
-    // Cooldown e limite diário
     private static readonly HashSet<string> TiposSociais = new()
     {
         "seguidor", "comentario", "curtida_livro", "curtida_avaliacao"
@@ -32,7 +31,7 @@ public class NotificacaoService : INotificacaoService
         "streak", "leitura", "reading_reminder", "start_reading", "add_book", "incentivo"
     };
 
-    private const int LIMITE_DIARIO_INCENTIVO = 3;
+    private const int LIMITE_DIARIO_INCENTIVO = 5;
     private static readonly TimeSpan COOLDOWN_SOCIAL = TimeSpan.FromHours(1);
     private static readonly TimeSpan JANELA_LIMITE_DIARIO = TimeSpan.FromHours(24);
 
@@ -119,7 +118,7 @@ public class NotificacaoService : INotificacaoService
         LimparCacheNaoLidas(usuarioId);
     }
 
-    // ============ CRIAÇÃO + PUSH ============
+    // ============ CRIAÇÃO (o EnviarPushAsync já cria a interna) ============
 
     public async Task CriarNotificacaoSeguidor(string idUsuario, string idSeguidor, string nomeSeguidor)
     {
@@ -127,21 +126,7 @@ public class NotificacaoService : INotificacaoService
             return;
 
         var mensagem = $"{nomeSeguidor} começou a seguir você";
-
         await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio/comunidade", "seguidor");
-
-        var notificacao = new Notificacao
-        {
-            Id = Guid.NewGuid().ToString(),
-            IdUsuario = idUsuario,
-            Tipo = "seguidor",
-            Mensagem = mensagem,
-            IdOrigem = idSeguidor,
-            DataCriacao = DateTime.UtcNow,
-            Lida = false
-        };
-        await _notificacaoRepository.AddAsync(notificacao);
-        LimparCacheNaoLidas(idUsuario);
     }
 
     public async Task CriarNotificacaoComentario(string idUsuarioDono, string idLivro, string tituloLivro, string nomeComentador)
@@ -150,21 +135,7 @@ public class NotificacaoService : INotificacaoService
             return;
 
         var mensagem = $"{nomeComentador} comentou em \"{tituloLivro}\"";
-
         await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, $"/inicio/livro/{idLivro}", "comentario");
-
-        var notificacao = new Notificacao
-        {
-            Id = Guid.NewGuid().ToString(),
-            IdUsuario = idUsuarioDono,
-            Tipo = "comentario",
-            Mensagem = mensagem,
-            IdOrigem = idLivro,
-            DataCriacao = DateTime.UtcNow,
-            Lida = false
-        };
-        await _notificacaoRepository.AddAsync(notificacao);
-        LimparCacheNaoLidas(idUsuarioDono);
     }
 
     public async Task CriarNotificacaoCurtida(string idUsuarioDono, string idOrigem, string nomeCurtidor, string tipoAtividade, string tituloLivro)
@@ -179,19 +150,41 @@ public class NotificacaoService : INotificacaoService
             : $"{nomeCurtidor} curtiu sua postagem de \"{tituloLivro}\" ❤️";
 
         await EnviarPushAsync(idUsuarioDono, "BliTeca", mensagem, "/inicio/comunidade", tipo);
+    }
 
-        var notificacao = new Notificacao
-        {
-            Id = Guid.NewGuid().ToString(),
-            IdUsuario = idUsuarioDono,
-            Tipo = tipo,
-            Mensagem = mensagem,
-            IdOrigem = idOrigem,
-            DataCriacao = DateTime.UtcNow,
-            Lida = false
-        };
-        await _notificacaoRepository.AddAsync(notificacao);
-        LimparCacheNaoLidas(idUsuarioDono);
+    public async Task CriarNotificacaoIncentivo(string idUsuario, string tipo, string mensagem)
+    {
+        if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(mensagem))
+            return;
+
+        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio", tipo);
+    }
+
+    public async Task CriarNotificacaoStreak(string idUsuario, int streakAtual)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "streak",
+            $"🔥 Sua sequência está em {streakAtual} dias! Continue lendo hoje!"
+        );
+    }
+
+    public async Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "leitura",
+            $"📚 Você está há {diasParado} dias sem ler '{tituloLivro}'. Continue de onde parou!"
+        );
+    }
+
+    public async Task CriarNotificacaoIncentivoInicial(string idUsuario)
+    {
+        await CriarNotificacaoIncentivo(
+            idUsuario,
+            "incentivo",
+            "📕 Adicione seu primeiro livro e comece sua jornada literária!"
+        );
     }
 
     // ============ SUBSCRIPTIONS ============
@@ -203,7 +196,6 @@ public class NotificacaoService : INotificacaoService
             if (string.IsNullOrEmpty(request?.UserId) || string.IsNullOrEmpty(request?.Token))
                 return false;
 
-            // Desativa subscriptions antigas do mesmo UserId+Device que não sejam esse token
             var oldSubscriptions = await _subscriptionRepository.FindAsync(s =>
                 s.UserId == request.UserId &&
                 s.Device == request.Device &&
@@ -217,7 +209,6 @@ public class NotificacaoService : INotificacaoService
                 await _subscriptionRepository.UpdateAsync(old.Id, old);
             }
 
-            // Verifica se o token já existe
             var existingSubscription = (await _subscriptionRepository.FindAsync(
                 s => s.Token == request.Token)).FirstOrDefault();
 
@@ -250,7 +241,6 @@ public class NotificacaoService : INotificacaoService
                 }
                 catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
                 {
-                    // Alguém inseriu entre o FindAsync e o AddAsync. Rebusca e reativa.
                     var sub = (await _subscriptionRepository.FindAsync(s =>
                         s.Token == request.Token)).FirstOrDefault();
 
@@ -313,56 +303,7 @@ public class NotificacaoService : INotificacaoService
         return subscriptions.ToList();
     }
 
-    // ============ INCENTIVO ============
-
-    public async Task CriarNotificacaoIncentivo(string idUsuario, string tipo, string mensagem)
-    {
-        if (string.IsNullOrEmpty(idUsuario) || string.IsNullOrEmpty(mensagem))
-            return;
-
-        await EnviarPushAsync(idUsuario, "BliTeca", mensagem, "/inicio", tipo);
-
-        var notificacao = new Notificacao
-        {
-            Id = Guid.NewGuid().ToString(),
-            IdUsuario = idUsuario,
-            Tipo = tipo,
-            Mensagem = mensagem,
-            DataCriacao = DateTime.UtcNow,
-            Lida = false
-        };
-        await _notificacaoRepository.AddAsync(notificacao);
-        LimparCacheNaoLidas(idUsuario);
-    }
-
-    public async Task CriarNotificacaoStreak(string idUsuario, int streakAtual)
-    {
-        await CriarNotificacaoIncentivo(
-            idUsuario,
-            "streak",
-            $"🔥 Sua sequência está em {streakAtual} dias! Continue lendo hoje!"
-        );
-    }
-
-    public async Task CriarNotificacaoLeitura(string idUsuario, string tituloLivro, int diasParado)
-    {
-        await CriarNotificacaoIncentivo(
-            idUsuario,
-            "leitura",
-            $"📚 Você está há {diasParado} dias sem ler '{tituloLivro}'. Continue de onde parou!"
-        );
-    }
-
-    public async Task CriarNotificacaoIncentivoInicial(string idUsuario)
-    {
-        await CriarNotificacaoIncentivo(
-            idUsuario,
-            "incentivo",
-            "📕 Adicione seu primeiro livro e comece sua jornada literária!"
-        );
-    }
-
-    // ============ ENVIO DE PUSH (público + cooldown/limite) ============
+    // ============ ENVIO DE PUSH (ÚNICO LUGAR que cria a Notificacao interna) ============
 
     public async Task<bool> EnviarPushAsync(
         string idUsuario,
@@ -376,34 +317,34 @@ public class NotificacaoService : INotificacaoService
             if (string.IsNullOrEmpty(idUsuario))
                 return false;
 
-            // 1. Verifica cooldown/limite conforme o tipo
+            // 1. Cooldown/limite
             if (TiposSociais.Contains(tipo))
             {
                 var jaEnviou = await JaEnviouRecentemente(idUsuario, tipo, COOLDOWN_SOCIAL);
                 if (jaEnviou)
                 {
-                    _logger.LogInformation($"Cooldown ativo para {tipo} do usuário {idUsuario}. Push não enviado.");
+                    _logger.LogInformation($"[PUSH] Cooldown ativo para {tipo} do usuário {idUsuario}. Não enviado.");
                     return false;
                 }
             }
-            else if (TiposIncentivo.Contains(tipo))
+            else if (TiposIncentivo.Contains(tipo) && tipo != "streak")
             {
                 var total = await ContarIncentivosRecentes(idUsuario, JANELA_LIMITE_DIARIO);
                 if (total >= LIMITE_DIARIO_INCENTIVO)
                 {
-                    _logger.LogInformation($"Limite diário de incentivos atingido para {idUsuario}. Push não enviado.");
+                    _logger.LogInformation($"[PUSH] Limite diário de incentivos atingido para {idUsuario}. Não enviado.");
                     return false;
                 }
             }
 
-            // 2. Cria a notificação interna no banco ANTES de tentar enviar o push.
-            // Isso garante que o usuário veja a notificação no app, mesmo se o push falhar.
+            // 2. Cria a Notificacao interna (AQUI, e SÓ AQUI)
             var notificacao = new Notificacao
             {
                 Id = Guid.NewGuid().ToString(),
                 IdUsuario = idUsuario,
                 Tipo = tipo,
                 Mensagem = corpo,
+                IdOrigem = null,
                 DataCriacao = DateTime.UtcNow,
                 Lida = false
             };
@@ -411,15 +352,17 @@ public class NotificacaoService : INotificacaoService
             await _notificacaoRepository.AddAsync(notificacao);
             LimparCacheNaoLidas(idUsuario);
 
-            // 3. Busca os tokens ativos do usuário
-            var subs = await _subscriptionRepository.FindAsync(s =>
-                s.UserId == idUsuario && s.IsActive);
+            // 3. Busca tokens ativos
+            var subs = (await _subscriptionRepository.FindAsync(s =>
+                s.UserId == idUsuario && s.IsActive)).ToList();
 
             var tokens = subs.Select(s => s.Token).ToList();
 
+            _logger.LogInformation($"[PUSH] Enviando para {idUsuario}: tipo={tipo}, tokens={tokens.Count}");
+
             if (tokens.Count == 0)
             {
-                _logger.LogInformation($"Nenhum token ativo para o usuário {idUsuario}. Notificação interna criada, mas push não enviado.");
+                _logger.LogInformation($"[PUSH] Nenhum token ativo para {idUsuario}. Notificação interna criada, push não enviado.");
                 return false;
             }
 
@@ -432,21 +375,20 @@ public class NotificacaoService : INotificacaoService
 
             var enviouPush = await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
 
-            if (!enviouPush)
-            {
-                _logger.LogWarning($"Falha ao enviar push para {idUsuario}, mas a notificação interna foi registrada.");
-            }
+            if (enviouPush)
+                _logger.LogInformation($"[PUSH] Enviado com sucesso para {idUsuario}.");
+            else
+                _logger.LogWarning($"[PUSH] Falha no envio para {idUsuario}. Notificação interna registrada.");
 
             return enviouPush;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Erro ao enviar push para usuário {idUsuario}");
+            _logger.LogError(ex, $"[PUSH] Erro ao enviar para {idUsuario}");
             return false;
         }
     }
 
-    // Verifica se já enviou notificação desse tipo recentemente
     private async Task<bool> JaEnviouRecentemente(string idUsuario, string tipo, TimeSpan janela)
     {
         var limite = DateTime.UtcNow - janela;
@@ -457,14 +399,14 @@ public class NotificacaoService : INotificacaoService
         return existentes.Any();
     }
 
-    // Conta incentivos enviados nas últimas X horas
     private async Task<int> ContarIncentivosRecentes(string idUsuario, TimeSpan janela)
     {
         var limite = DateTime.UtcNow - janela;
         var existentes = await _notificacaoRepository.FindAsync(n =>
             n.IdUsuario == idUsuario &&
             n.DataCriacao > limite &&
-            TiposIncentivo.Contains(n.Tipo));
+            TiposIncentivo.Contains(n.Tipo) &&
+            n.Tipo != "streak");
         return existentes.Count();
     }
 

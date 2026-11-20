@@ -24,8 +24,6 @@ namespace BioTek.Services
         private string _accessToken;
         private DateTime _tokenExpiration;
 
-        private const int MAX_TOKENS_POR_LOTE = 500;
-
         public FirebaseNotificationService(
             HttpClient httpClient,
             ILogger<FirebaseNotificationService> logger,
@@ -39,30 +37,21 @@ namespace BioTek.Services
             _tokenExpiration = DateTime.MinValue;
         }
 
-        // Método para obter token OAuth2
         private async Task<string> GetAccessTokenAsync()
         {
             if (_accessToken != null && DateTime.UtcNow < _tokenExpiration)
-            {
                 return _accessToken;
-            }
 
             try
             {
                 string serviceAccountJson;
 
                 if (!string.IsNullOrEmpty(_firebaseSettings.ServiceAccountJson))
-                {
                     serviceAccountJson = _firebaseSettings.ServiceAccountJson;
-                }
                 else if (!string.IsNullOrEmpty(_firebaseSettings.ServiceAccountPath))
-                {
                     serviceAccountJson = await File.ReadAllTextAsync(_firebaseSettings.ServiceAccountPath);
-                }
                 else
-                {
                     throw new InvalidOperationException("Configuração Firebase não encontrada");
-                }
 
                 var serviceAccount = JsonSerializer.Deserialize<JsonElement>(serviceAccountJson);
 
@@ -117,7 +106,6 @@ namespace BioTek.Services
             }
         }
 
-        // Enviar notificação para um único token
         public async Task<bool> SendNotificationAsync(
             string token,
             string title,
@@ -162,7 +150,7 @@ namespace BioTek.Services
                                 icon = "ic_stat_notification",
                                 color = "#DB7C00",
                                 sound = "default",
-                                //click_action = "FCM_PLUGIN_ACTIVITY",
+                                click_action = "FCM_PLUGIN_ACTIVITY",
                                 channel_id = "default"
                             }
                         }
@@ -181,30 +169,25 @@ namespace BioTek.Services
                 );
 
                 if (response.IsSuccessStatusCode)
-                {
                     return true;
-                }
-                else
+
+                var error = await response.Content.ReadAsStringAsync();
+
+                if (error.Contains("UNREGISTERED") || error.Contains("INVALID_ARGUMENT") || error.Contains("NOT_FOUND"))
                 {
-                    var error = await response.Content.ReadAsStringAsync();
-
-                    if (error.Contains("UNREGISTERED") || error.Contains("INVALID_ARGUMENT"))
-                    {
-                        await DesativarTokenAsync(token);
-                    }
-
-                    _logger.LogError($"Erro ao enviar notificação: {error}");
-                    return false;
+                    await DesativarTokenAsync(token);
                 }
+
+                _logger.LogError($"[FIREBASE] Erro ao enviar: {error}");
+                return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao enviar notificação Firebase");
+                _logger.LogError(ex, "[FIREBASE] Erro ao enviar notificação");
                 return false;
             }
         }
 
-        // Enviar para múltiplos tokens (paralelo)
         public async Task<bool> SendMulticastAsync(
             List<string> tokens,
             string title,
@@ -221,141 +204,20 @@ namespace BioTek.Services
 
             var resultados = await Task.WhenAll(tarefas);
 
-            return resultados.All(r => r);
+            // 🆕 true se PELO MENOS UM token recebeu
+            var enviados = resultados.Count(r => r);
+            _logger.LogInformation($"[FIREBASE] Multicast: {enviados}/{tokens.Count} tokens receberam.");
+
+            return enviados > 0;
         }
 
-        // Enviar lote usando multicast real do Firebase
-        private async Task<bool> EnviarLoteMulticastAsync(
-            List<string> tokens,
-            string title,
-            string body,
-            string url,
-            Dictionary<string, string> data)
-        {
-            var accessToken = await GetAccessTokenAsync();
-            var projectId = _firebaseSettings.ProjectId;
-
-            var message = new
-            {
-                message = new
-                {
-                    tokens = tokens.ToArray(),
-                    notification = new
-                    {
-                        title = title,
-                        body = body
-                    },
-                    data = data ?? new Dictionary<string, string>(),
-                    webpush = new
-                    {
-                        fcm_options = new
-                        {
-                            link = url ?? "/"
-                        }
-                    },
-                    android = new
-                    {
-                        priority = "high",
-                        notification = new
-                        {
-                            icon = "ic_stat_notification",
-                            color = "#DB7C00",
-                            sound = "default",
-                            //click_action = "FCM_PLUGIN_ACTIVITY",
-                            channel_id = "default"
-                        }
-                    }
-                }
-            };
-
-            var json = JsonSerializer.Serialize(message);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
-
-            var response = await _httpClient.PostAsync(
-                $"https://fcm.googleapis.com/v1/projects/{projectId}/messages:send",
-                content
-            );
-
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadAsStringAsync();
-                await ProcessarRespostaMulticast(result);
-                return true;
-            }
-            else
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Erro no multicast: {error}");
-                return false;
-            }
-        }
-
-        // Processar resposta e desativar tokens inválidos
-        private async Task ProcessarRespostaMulticast(string respostaJson)
-        {
-            try
-            {
-                var resposta = JsonSerializer.Deserialize<JsonElement>(respostaJson);
-
-                if (resposta.TryGetProperty("responses", out var responses))
-                {
-                    foreach (var resp in responses.EnumerateArray())
-                    {
-                        if (resp.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
-                        {
-                            if (resp.TryGetProperty("error", out var error))
-                            {
-                                var errorMessage = error.ToString();
-
-                                if (errorMessage.Contains("UNREGISTERED") ||
-                                    errorMessage.Contains("INVALID_ARGUMENT") ||
-                                    errorMessage.Contains("NOT_FOUND"))
-                                {
-                                    _logger.LogWarning($"Token inválido detectado: {errorMessage}");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Erro ao processar resposta do multicast");
-            }
-        }
-
-        // Desativar token inválido
-        private async Task DesativarTokenAsync(string token)
-        {
-            try
-            {
-                var subscriptions = await _subscriptionRepository.FindAsync(s => s.Token == token);
-
-                foreach (var sub in subscriptions)
-                {
-                    sub.IsActive = false;
-                    sub.LastUsedAt = DateTime.UtcNow;
-                    await _subscriptionRepository.UpdateAsync(sub.Id, sub);
-                    _logger.LogInformation($"Token desativado: {token.Substring(0, Math.Min(10, token.Length))}...");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Erro ao desativar token inválido");
-            }
-        }
-
-        // Enviar lembrete de leitura
         public async Task<bool> SendReadingReminderAsync(string userId, string bookTitle, string bookId)
         {
             try
             {
                 var title = "📖 Continue sua leitura!";
                 var body = $"Você começou a ler '{bookTitle}' e está há um tempo sem atividade. Que tal continuar de onde parou?";
-                var url = $"/livros/{bookId}";
+                var url = $"/inicio/livro/{bookId}";
 
                 var data = new Dictionary<string, string>
                 {
@@ -372,7 +234,7 @@ namespace BioTek.Services
 
                 if (tokens.Count == 0)
                 {
-                    _logger.LogInformation($"Nenhum token ativo encontrado para o usuário {userId}");
+                    _logger.LogInformation($"[FIREBASE] Nenhum token ativo para {userId}");
                     return false;
                 }
 
@@ -380,12 +242,11 @@ namespace BioTek.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao enviar lembrete de leitura");
+                _logger.LogError(ex, "[FIREBASE] Erro no lembrete de leitura");
                 return false;
             }
         }
 
-        // Validar token
         public async Task<bool> ValidateTokenAsync(string token)
         {
             try
@@ -417,12 +278,31 @@ namespace BioTek.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao validar token Firebase");
+                _logger.LogError(ex, "[FIREBASE] Erro ao validar token");
                 return false;
             }
         }
 
-        // Métodos auxiliares
+        private async Task DesativarTokenAsync(string token)
+        {
+            try
+            {
+                var subscriptions = await _subscriptionRepository.FindAsync(s => s.Token == token);
+
+                foreach (var sub in subscriptions)
+                {
+                    sub.IsActive = false;
+                    sub.LastUsedAt = DateTime.UtcNow;
+                    await _subscriptionRepository.UpdateAsync(sub.Id, sub);
+                    _logger.LogInformation($"[FIREBASE] Token desativado: {token.Substring(0, Math.Min(10, token.Length))}...");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[FIREBASE] Erro ao desativar token");
+            }
+        }
+
         private static string Base64UrlEncode(byte[] bytes)
         {
             return Convert.ToBase64String(bytes)

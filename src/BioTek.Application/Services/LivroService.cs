@@ -395,6 +395,9 @@ public class LivroService : ILivroService
         if (request.Progresso.HasValue)
             existente.Progresso = request.Progresso.Value;
 
+        if (!string.IsNullOrWhiteSpace(request.Cfi))
+            existente.Cfi = request.Cfi;
+
         if (request.Pausado.HasValue)
             existente.Pausado = request.Pausado.Value;
 

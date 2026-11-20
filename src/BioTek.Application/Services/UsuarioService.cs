@@ -338,6 +338,7 @@ public class UsuarioService : IUsuarioService
                     l.Editora,
                     l.Idioma,
                     l.ArquivoLeitura,
+                    l.Publico,
                     Avaliacao = avaliacao != null
                         ? new { avaliacao.Id, avaliacao.Nota, avaliacao.DataCriacao }
                         : null,
@@ -415,5 +416,11 @@ public class UsuarioService : IUsuarioService
         {
             _cachePerfil.Remove(usuarioId);
         }
+    }
+
+    public async Task<IEnumerable<Usuario>> FindAsync(
+    System.Linq.Expressions.Expression<Func<Usuario, bool>> predicate)
+    {
+        return await _usuarioRepository.FindAsync(predicate);
     }
 }

@@ -314,12 +314,19 @@ builder.Services.AddScoped<IRepository<Leitura>>(sp =>
     return new MongoRepository<Leitura>(context, "Leituras");
 });
 
+// ComentarioAtividade
+builder.Services.AddScoped<IRepository<ComentarioAtividade>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<ComentarioAtividade>(context, "ComentarioAtividade");
+});
+
 builder.Services.AddSingleton<IR2Service, R2Service>();
 // ==========================================
 // 5. SERVICES (regras de negócio)
 // ==========================================
 
-
+builder.Services.AddScoped<IComentarioAtividadeService, ComentarioAtividadeService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 builder.Services.AddScoped<ISeguidorService, SeguidorService>();
 builder.Services.AddScoped<ILivroService, LivroService>();

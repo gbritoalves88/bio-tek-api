@@ -15,6 +15,7 @@ public class Livro : BaseEntity
     public string? ArquivoLeitura { get; set; }
     public StatusLeitura Status { get; set; } = StatusLeitura.QueroLer;
     public int? Progresso { get; set; }
+    public string? Cfi { get; set; }
     public bool Pausado { get; set; } = false;
     public int? PaginaAtual { get; set; }
     public int? TotalPaginas { get; set; }
@@ -29,6 +30,7 @@ public class Livro : BaseEntity
     public int? AnoPublicacao { get; set; }
     public string? Editora { get; set; }
     public string? Idioma { get; set; }
+    public bool Publico { get; set; } = true;  
 
 }
 public class LivroDetalhesWeb

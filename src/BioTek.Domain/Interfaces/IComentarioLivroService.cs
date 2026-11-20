@@ -4,7 +4,9 @@ namespace BioTek.Domain.Interfaces;
 
 public interface IComentarioLivroService
 {
-    Task<IEnumerable<ComentarioLivro>> GetPorLivroAsync(string livroId);
     Task<ComentarioLivro> CriarAsync(ComentarioLivro comentario);
     Task<bool> DeletarAsync(string id, string usuarioId);
+    Task<IEnumerable<object>> GetPorLivroAsync(string livroId);
+    Task<IEnumerable<object>> GetPorAtividadeAsync(string idAtividade); // 🆕
+    Task<ComentarioLivro?> GetPorIdAsync(string id); // 🆕
 }

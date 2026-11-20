@@ -64,11 +64,10 @@ public class LivroController : ControllerBase
         var usuarioId = GetUsuarioId();
         var livro = await _livroService.GetPorIdAsync(id);
         
-        // 🆕 Verifica se o livro é do usuário (ou público)
         if (livro == null) return NotFound();
         
-        // 🆕 Se não é do usuário, não retorna dados completos
-        if (livro.IdUsuario != usuarioId)
+        // Se é privado e não é do usuário, esconde
+        if (!livro.Publico && livro.IdUsuario != usuarioId)
             return NotFound();
         
         return Ok(livro);
@@ -82,7 +81,11 @@ public class LivroController : ControllerBase
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorUsuario(string usuarioId)
     {
-        var livros = await _livroService.GetPorUsuarioAsync(usuarioId);
+        // Pega o usuário logado (se houver)
+        string? usuarioLogadoId = null;
+        try { usuarioLogadoId = GetUsuarioId(); } catch { }
+        
+        var livros = await _livroService.GetPorUsuarioAsync(usuarioId, usuarioLogadoId);
         return Ok(livros);
     }
 

@@ -48,9 +48,16 @@ public class LivroService : ILivroService
 
     // ========== BUSCAS ==========
 
-    public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId)
+    public async Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId, string? usuarioLogadoId = null)
     {
-        return await _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
+        var query = _livroRepository.FindAsync(l => l.IdUsuario == usuarioId);
+        var livros = await query;
+        
+        // Se for o próprio usuário, retorna tudo
+        if (usuarioId == usuarioLogadoId) return livros;
+        
+        // Se for outro, só os públicos
+        return livros.Where(l => l.Publico);
     }
 
     public async Task<List<object>> GetMeusLivrosAsync(string usuarioId)
@@ -87,6 +94,7 @@ public class LivroService : ILivroService
                 l.Editora,
                 l.Idioma,
                 l.ArquivoLeitura,
+                l.Publico,
                 Avaliacao = av == null ? null : new { av.Id, av.Nota, av.DataCriacao }
             };
         }).ToList();
@@ -117,14 +125,19 @@ public class LivroService : ILivroService
 
         livro.Id = Guid.NewGuid().ToString();
         livro.DataCriacao = DateTime.UtcNow;
-        livro.Status = StatusLeitura.QueroLer;
+        if (livro.Status == 0)
+            livro.Status = StatusLeitura.QueroLer;
 
+    
         if (string.IsNullOrEmpty(livro.Tipo))
             livro.Tipo = "livro";
 
         // Garante listas não nulas
         if (livro.Generos == null)
             livro.Generos = new List<string>();
+
+        if (livro.Publico != false)
+            livro.Publico = true;
 
         await _livroRepository.AddAsync(livro);
         _homeService.LimparCache();
@@ -191,6 +204,9 @@ public class LivroService : ILivroService
         if (string.IsNullOrEmpty(livro.IdColecao))
             livro.IdColecao = existente.IdColecao;
 
+        if (string.IsNullOrWhiteSpace(livro.Titulo))
+            livro.Titulo = existente.Titulo;
+
         // ========== CAMPOS DE PROGRESSO (sempre preservados) ==========
         livro.Progresso = existente.Progresso;
         livro.PaginaAtual = existente.PaginaAtual;
@@ -254,7 +270,7 @@ public class LivroService : ILivroService
 
     public async Task<IEnumerable<object>> GetTodosAsync()
     {
-        var livros = await _livroRepository.GetAllAsync();
+        var livros = await _livroRepository.FindAsync(l => l.Publico == true);
         
         // Projeção: retorna só campos necessários
         return livros.Select(l => (object)new

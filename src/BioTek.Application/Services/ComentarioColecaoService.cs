@@ -45,8 +45,8 @@ public class ComentarioColecaoService : IComentarioColecaoService
         var avaliacoesDoDono = await _avaliacaoRepository.FindAsync(
             a => a.IdColecao == comentario.IdColecao && a.IdUsuario == colecao.IdUsuario);
 
-        if (!avaliacoesDoDono.Any())
-            throw new InvalidOperationException("O dono da coleção ainda não avaliou. Aguarde a avaliação.");
+        //if (!avaliacoesDoDono.Any())
+        //    throw new InvalidOperationException("O dono da coleção ainda não avaliou. Aguarde a avaliação.");
 
         // 4. Salvar
         comentario.Id = Guid.NewGuid().ToString();

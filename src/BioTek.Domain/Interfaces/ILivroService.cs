@@ -6,7 +6,7 @@ namespace BioTek.Domain.Interfaces;
 public interface ILivroService
 {
     Task<List<object>> GetMeusLivrosAsync(string usuarioId);
-    Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId);
+    Task<IEnumerable<Livro>> GetPorUsuarioAsync(string usuarioId, string usuarioLogadoId);
     Task<Livro?> GetPorIdAsync(string id);
     Task<Livro> CriarAsync(Livro livro);
     Task<Livro?> AtualizarAsync(string id, Livro livro, int? estrelas = null);

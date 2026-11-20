@@ -37,6 +37,9 @@ public class AvaliacaoLivroService : IAvaliacaoLivroService
         
         if (livro == null)
             throw new InvalidOperationException("Livro não encontrado");
+
+        if (!livro.Publico && livro.IdUsuario != avaliacaoLivro.IdUsuario)
+            throw new InvalidOperationException("Livro não está disponível para avaliação");
         
         if (livro.IdUsuario != avaliacaoLivro.IdUsuario)
             throw new InvalidOperationException("Livro não pertence ao usuário");

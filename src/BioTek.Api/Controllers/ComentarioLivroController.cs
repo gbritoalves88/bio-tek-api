@@ -42,12 +42,19 @@ public class ComentarioLivroController : ControllerBase
         
         return id;
     }
-
+    
     [HttpGet("livro/{idLivro}")]
-    [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> GetPorLivro(string idLivro)
     {
         var comentarios = await _comentarioService.GetPorLivroAsync(idLivro);
+        return Ok(comentarios);
+    }
+
+    [HttpGet("atividade/{idAtividade}")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> GetPorAtividade(string idAtividade)
+    {
+        var comentarios = await _comentarioService.GetPorAtividadeAsync(idAtividade);
         return Ok(comentarios);
     }
 

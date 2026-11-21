@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.ResponseCompression;
 using MongoDB.Driver;
 using BioTek.Application.Settings;
 using BioTek.Domain.Models;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -424,6 +425,31 @@ builder.Services.AddSwaggerGen(c =>
 // ==========================================
 
 var app = builder.Build();
+
+
+// 🆕 Diagnóstico Firebase na inicialização
+try
+{
+    var firebaseSettings = app.Services.GetRequiredService<IOptions<FirebaseSettings>>().Value;
+
+    if (!string.IsNullOrEmpty(firebaseSettings.ProjectId))
+        app.Logger.LogInformation($"[FIREBASE] ProjectId configurado: {firebaseSettings.ProjectId}");
+    else
+        app.Logger.LogWarning("[FIREBASE] ⚠️ ProjectId NÃO configurado!");
+
+    if (!string.IsNullOrEmpty(firebaseSettings.ServiceAccountJson))
+        app.Logger.LogInformation($"[FIREBASE] ServiceAccountJson presente ({firebaseSettings.ServiceAccountJson.Length} chars).");
+    else if (!string.IsNullOrEmpty(firebaseSettings.ServiceAccountPath))
+        app.Logger.LogInformation($"[FIREBASE] ServiceAccountPath configurado: {firebaseSettings.ServiceAccountPath}");
+    else
+        app.Logger.LogWarning("[FIREBASE] ⚠️ ServiceAccount NÃO configurado!");
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "[FIREBASE] Erro ao ler configuração na inicialização");
+}
+
+
 
 // 🆕 Tratamento global de exceções
 app.UseExceptionHandler(errorApp =>

@@ -15,26 +15,28 @@ public class SeguidorController : ControllerBase
     private readonly ISeguidorService _seguidorService;
     private readonly INotificacaoService _notificacaoService;
     private readonly IUsuarioService _usuarioService;
+    private readonly ILogger<SeguidorController> _logger;
 
     public SeguidorController(
         ISeguidorService seguidorService,
         IUsuarioService usuarioService,
-        INotificacaoService notificacaoService)
+        INotificacaoService notificacaoService,
+        ILogger<SeguidorController> logger)
     {
         _seguidorService = seguidorService;
         _usuarioService = usuarioService;
         _notificacaoService = notificacaoService;
+        _logger = logger;
     }
 
-    // 🆕 GetUsuarioId melhorado
     private string GetUsuarioId()
     {
-        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+        var id = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                  ?? User.FindFirst("sub")?.Value;
-        
+
         if (string.IsNullOrEmpty(id))
             throw new UnauthorizedAccessException("Usuário não autenticado");
-        
+
         return id;
     }
 
@@ -46,25 +48,44 @@ public class SeguidorController : ControllerBase
     public async Task<IActionResult> Seguir(string idUsuario)
     {
         var usuarioLogadoId = GetUsuarioId();
+
         try
         {
             var resultado = await _seguidorService.SeguirAsync(idUsuario, usuarioLogadoId);
-            
-            // 🆕 Limpa o cache do perfil AQUI, e não no Service
-            _usuarioService.LimparCachePerfil(idUsuario); 
 
-            // Notificação em background (opcional, mas ajuda a não travar)
-            _ = Task.Run(async () => {
-                using var scope = HttpContext.RequestServices.CreateScope();
-                var notificacao = scope.ServiceProvider.GetRequiredService<INotificacaoService>();
+            _usuarioService.LimparCachePerfil(idUsuario);
+
+            // A notificação interna é persistida antes da tentativa de push.
+            // O serviço trata falhas do Firebase sem desfazer o relacionamento.
+            try
+            {
                 var usuario = await _usuarioService.GetPorIdAsync(usuarioLogadoId);
-                await notificacao.CriarNotificacaoSeguidor(idUsuario, usuarioLogadoId, usuario?.Nome ?? "Alguém");
-            });
+                await _notificacaoService.CriarNotificacaoSeguidor(
+                    idUsuario,
+                    usuarioLogadoId,
+                    usuario?.Nome ?? "Alguém");
+            }
+            catch (Exception ex)
+            {
+                // Uma falha na notificação não deve transformar um follow salvo em erro HTTP.
+                _logger.LogError(
+                    ex,
+                    "Falha ao criar notificação de seguidor. SeguidorId={SeguidorId}, UsuarioId={UsuarioId}",
+                    usuarioLogadoId,
+                    idUsuario);
+            }
 
             return Ok(resultado);
         }
-        catch (Exception ex) { return BadRequest(new { mensagem = ex.Message }); }
-
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Erro ao seguir usuário. SeguidorId={SeguidorId}, UsuarioId={UsuarioId}",
+                usuarioLogadoId,
+                idUsuario);
+            return BadRequest(new { mensagem = ex.Message });
+        }
     }
 
     /// <summary>
@@ -74,10 +95,10 @@ public class SeguidorController : ControllerBase
     [EnableRateLimiting("GeneralPolicy")]
     public async Task<IActionResult> DeixarDeSeguir(string idUsuario)
     {
-         var result = await _seguidorService.DeixarDeSeguirAsync(idUsuario, GetUsuarioId());
-    
-        // 🆕 Limpa o cache
-        if (result) _usuarioService.LimparCachePerfil(idUsuario);
+        var result = await _seguidorService.DeixarDeSeguirAsync(idUsuario, GetUsuarioId());
+
+        if (result)
+            _usuarioService.LimparCachePerfil(idUsuario);
 
         return result ? NoContent() : NotFound();
     }

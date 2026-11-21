@@ -269,18 +269,34 @@ builder.Services.AddScoped<IRepository<JobExecution>>(sp =>
 // Firebase Settings
 builder.Services.Configure<FirebaseSettings>(options =>
 {
-    options.ProjectId = Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID") 
+    options.ProjectId = Environment.GetEnvironmentVariable("FIREBASE_PROJECT_ID")
                         ?? builder.Configuration["Firebase:ProjectId"];
-    
-    var serviceAccountJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON");
-    
-    if (!string.IsNullOrEmpty(serviceAccountJson))
+
+    // 🆕 Tenta Base64 primeiro, depois o JSON puro
+    var serviceAccountBase64 = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON_BASE64");
+    if (!string.IsNullOrEmpty(serviceAccountBase64))
     {
-        options.ServiceAccountJson = serviceAccountJson;
+        try
+        {
+            var bytes = Convert.FromBase64String(serviceAccountBase64);
+            options.ServiceAccountJson = Encoding.UTF8.GetString(bytes);
+        }
+        catch (Exception ex)
+        {
+            // loga o erro
+        }
     }
     else
     {
-        options.ServiceAccountJson = builder.Configuration["Firebase:ServiceAccountJson"];
+        var serviceAccountJson = Environment.GetEnvironmentVariable("FIREBASE_SERVICE_ACCOUNT_JSON");
+        if (!string.IsNullOrEmpty(serviceAccountJson))
+        {
+            options.ServiceAccountJson = serviceAccountJson;
+        }
+        else
+        {
+            options.ServiceAccountJson = builder.Configuration["Firebase:ServiceAccountJson"];
+        }
     }
 });
 

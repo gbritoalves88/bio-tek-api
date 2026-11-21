@@ -312,82 +312,133 @@ public class NotificacaoService : INotificacaoService
         string url,
         string tipo)
     {
+        if (string.IsNullOrWhiteSpace(idUsuario))
+            return false;
+
+        // 1. Cooldown/limite: evita criar notificações sociais repetidas.
+        if (TiposSociais.Contains(tipo))
+        {
+            var jaEnviou = await JaEnviouRecentemente(idUsuario, tipo, COOLDOWN_SOCIAL);
+            if (jaEnviou)
+            {
+                _logger.LogInformation(
+                    "[PUSH] Cooldown ativo para {Tipo} do usuário {UsuarioId}. Notificação não criada.",
+                    tipo,
+                    idUsuario);
+                return false;
+            }
+        }
+        else if (TiposIncentivo.Contains(tipo) && tipo != "streak")
+        {
+            var total = await ContarIncentivosRecentes(idUsuario, JANELA_LIMITE_DIARIO);
+            if (total >= LIMITE_DIARIO_INCENTIVO)
+            {
+                _logger.LogInformation(
+                    "[PUSH] Limite diário de incentivos atingido para {UsuarioId}. Notificação não criada.",
+                    idUsuario);
+                return false;
+            }
+        }
+
+        // 2. Persiste a notificação interna. Falha aqui deve ser propagada:
+        // não podemos tratar falha de banco como se fosse apenas falha de push.
+        var notificacao = new Notificacao
+        {
+            Id = Guid.NewGuid().ToString(),
+            IdUsuario = idUsuario,
+            Tipo = tipo,
+            Mensagem = corpo,
+            IdOrigem = null,
+            DataCriacao = DateTime.UtcNow,
+            Lida = false
+        };
+
+        await _notificacaoRepository.AddAsync(notificacao);
+        LimparCacheNaoLidas(idUsuario);
+
+        // 3. Push externo é best-effort: falha no Firebase não apaga a interna.
         try
         {
-            if (string.IsNullOrEmpty(idUsuario))
-                return false;
-
-            // 1. Cooldown/limite
-            if (TiposSociais.Contains(tipo))
-            {
-                var jaEnviou = await JaEnviouRecentemente(idUsuario, tipo, COOLDOWN_SOCIAL);
-                if (jaEnviou)
-                {
-                    _logger.LogInformation($"[PUSH] Cooldown ativo para {tipo} do usuário {idUsuario}. Não enviado.");
-                    return false;
-                }
-            }
-            else if (TiposIncentivo.Contains(tipo) && tipo != "streak")
-            {
-                var total = await ContarIncentivosRecentes(idUsuario, JANELA_LIMITE_DIARIO);
-                if (total >= LIMITE_DIARIO_INCENTIVO)
-                {
-                    _logger.LogInformation($"[PUSH] Limite diário de incentivos atingido para {idUsuario}. Não enviado.");
-                    return false;
-                }
-            }
-
-            // 2. Cria a Notificacao interna (AQUI, e SÓ AQUI)
-            var notificacao = new Notificacao
-            {
-                Id = Guid.NewGuid().ToString(),
-                IdUsuario = idUsuario,
-                Tipo = tipo,
-                Mensagem = corpo,
-                IdOrigem = null,
-                DataCriacao = DateTime.UtcNow,
-                Lida = false
-            };
-
-            await _notificacaoRepository.AddAsync(notificacao);
-            LimparCacheNaoLidas(idUsuario);
-
-            // 3. Busca tokens ativos
             var subs = (await _subscriptionRepository.FindAsync(s =>
                 s.UserId == idUsuario && s.IsActive)).ToList();
 
             var tokens = subs.Select(s => s.Token).ToList();
 
-            _logger.LogInformation($"[PUSH] Enviando para {idUsuario}: tipo={tipo}, tokens={tokens.Count}");
+            _logger.LogInformation(
+                "[PUSH] Enviando para {UsuarioId}: tipo={Tipo}, tokens={QuantidadeTokens}",
+                idUsuario,
+                tipo,
+                tokens.Count);
 
             if (tokens.Count == 0)
             {
-                _logger.LogInformation($"[PUSH] Nenhum token ativo para {idUsuario}. Notificação interna criada, push não enviado.");
+                _logger.LogInformation(
+                    "[PUSH] Nenhum token ativo para {UsuarioId}. Notificação interna criada; push não enviado.",
+                    idUsuario);
                 return false;
             }
 
-            // 4. Envia o push pelo Firebase
             var data = new Dictionary<string, string>
             {
                 { "type", tipo },
                 { "url", url }
             };
 
-            var enviouPush = await _firebaseService.SendMulticastAsync(tokens, titulo, corpo, url, data);
+            var enviouPush = await _firebaseService.SendMulticastAsync(
+                tokens,
+                titulo,
+                corpo,
+                url,
+                data);
 
             if (enviouPush)
-                _logger.LogInformation($"[PUSH] Enviado com sucesso para {idUsuario}.");
+                _logger.LogInformation("[PUSH] Enviado com sucesso para {UsuarioId}.", idUsuario);
             else
-                _logger.LogWarning($"[PUSH] Falha no envio para {idUsuario}. Notificação interna registrada.");
+                _logger.LogWarning(
+                    "[PUSH] Falha no envio para {UsuarioId}. Notificação interna já registrada.",
+                    idUsuario);
 
             return enviouPush;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"[PUSH] Erro ao enviar para {idUsuario}");
+            _logger.LogError(
+                ex,
+                "[PUSH] Falha no envio externo para {UsuarioId}. Notificação interna já registrada.",
+                idUsuario);
             return false;
         }
     }
+
+    private async Task<bool> JaEnviouRecentemente(string idUsuario, string tipo, TimeSpan janela)
+    {
+        var limite = DateTime.UtcNow - janela;
+        var existentes = await _notificacaoRepository.FindAsync(n =>
+            n.IdUsuario == idUsuario &&
+            n.Tipo == tipo &&
+            n.DataCriacao > limite);
+        return existentes.Any();
+    }
+
+    private async Task<int> ContarIncentivosRecentes(string idUsuario, TimeSpan janela)
+    {
+        var limite = DateTime.UtcNow - janela;
+        var existentes = await _notificacaoRepository.FindAsync(n =>
+            n.IdUsuario == idUsuario &&
+            n.DataCriacao > limite &&
+            TiposIncentivo.Contains(n.Tipo) &&
+            n.Tipo != "streak");
+        return existentes.Count();
+    }
+
+    private void LimparCacheNaoLidas(string usuarioId)
+    {
+        lock (_cacheLock)
+        {
+            _cacheNaoLidas.Remove(usuarioId);
+        }
+    }
+}
 
     private async Task<bool> JaEnviouRecentemente(string idUsuario, string tipo, TimeSpan janela)
     {

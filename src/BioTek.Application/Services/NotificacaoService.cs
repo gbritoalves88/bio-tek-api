@@ -439,33 +439,3 @@ public class NotificacaoService : INotificacaoService
         }
     }
 }
-
-    private async Task<bool> JaEnviouRecentemente(string idUsuario, string tipo, TimeSpan janela)
-    {
-        var limite = DateTime.UtcNow - janela;
-        var existentes = await _notificacaoRepository.FindAsync(n =>
-            n.IdUsuario == idUsuario &&
-            n.Tipo == tipo &&
-            n.DataCriacao > limite);
-        return existentes.Any();
-    }
-
-    private async Task<int> ContarIncentivosRecentes(string idUsuario, TimeSpan janela)
-    {
-        var limite = DateTime.UtcNow - janela;
-        var existentes = await _notificacaoRepository.FindAsync(n =>
-            n.IdUsuario == idUsuario &&
-            n.DataCriacao > limite &&
-            TiposIncentivo.Contains(n.Tipo) &&
-            n.Tipo != "streak");
-        return existentes.Count();
-    }
-
-    private void LimparCacheNaoLidas(string usuarioId)
-    {
-        lock (_cacheLock)
-        {
-            _cacheNaoLidas.Remove(usuarioId);
-        }
-    }
-}

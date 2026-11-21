@@ -36,27 +36,42 @@ namespace BioTek.Services
             _firebaseSettings = firebaseSettings.Value;
             _tokenExpiration = DateTime.MinValue;
         }
-
         private async Task<string> GetAccessTokenAsync()
         {
             if (_accessToken != null && DateTime.UtcNow < _tokenExpiration)
+            {
+                _logger.LogDebug("[FIREBASE] Reutilizando access token em cache.");
                 return _accessToken;
+            }
 
             try
             {
+                _logger.LogInformation("[FIREBASE] Obtendo novo access token do Google...");
+
                 string serviceAccountJson;
 
                 if (!string.IsNullOrEmpty(_firebaseSettings.ServiceAccountJson))
+                {
                     serviceAccountJson = _firebaseSettings.ServiceAccountJson;
+                    _logger.LogInformation("[FIREBASE] Usando ServiceAccountJson das configurações.");
+                }
                 else if (!string.IsNullOrEmpty(_firebaseSettings.ServiceAccountPath))
+                {
                     serviceAccountJson = await File.ReadAllTextAsync(_firebaseSettings.ServiceAccountPath);
+                    _logger.LogInformation($"[FIREBASE] Usando ServiceAccountPath: {_firebaseSettings.ServiceAccountPath}");
+                }
                 else
+                {
+                    _logger.LogError("[FIREBASE] ❌ Nenhuma credencial encontrada (ServiceAccountJson nem ServiceAccountPath).");
                     throw new InvalidOperationException("Configuração Firebase não encontrada");
+                }
 
                 var serviceAccount = JsonSerializer.Deserialize<JsonElement>(serviceAccountJson);
 
                 var clientEmail = serviceAccount.GetProperty("client_email").GetString();
                 var privateKey = serviceAccount.GetProperty("private_key").GetString();
+
+                _logger.LogInformation($"[FIREBASE] client_email: {clientEmail}");
 
                 var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 var jwtHeader = new { alg = "RS256", typ = "JWT" };
@@ -89,7 +104,13 @@ namespace BioTek.Services
                 tokenRequest.Content = new FormUrlEncodedContent(formData);
 
                 var response = await _httpClient.SendAsync(tokenRequest);
-                response.EnsureSuccessStatusCode();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var erro = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"[FIREBASE] ❌ Google recusou o token: {response.StatusCode} — {erro}");
+                    response.EnsureSuccessStatusCode();
+                }
 
                 var responseJson = await response.Content.ReadAsStringAsync();
                 var tokenResponse = JsonSerializer.Deserialize<JsonElement>(responseJson);
@@ -97,11 +118,13 @@ namespace BioTek.Services
                 _accessToken = tokenResponse.GetProperty("access_token").GetString();
                 _tokenExpiration = DateTime.UtcNow.AddMinutes(50);
 
+                _logger.LogInformation($"[FIREBASE] ✅ Access token obtido com sucesso (válido até {_tokenExpiration:HH:mm:ss} UTC).");
+
                 return _accessToken;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao obter token de acesso Firebase");
+                _logger.LogError(ex, "[FIREBASE] ❌ Falha ao obter access token.");
                 throw;
             }
         }
@@ -113,8 +136,12 @@ namespace BioTek.Services
             string url = null,
             Dictionary<string, string> data = null)
         {
+            var tokenCurto = token.Substring(0, Math.Min(10, token.Length));
+
             try
             {
+                _logger.LogInformation($"[FIREBASE] Enviando push para token {tokenCurto}...");
+
                 var accessToken = await GetAccessTokenAsync();
                 var projectId = _firebaseSettings.ProjectId;
 
@@ -169,25 +196,29 @@ namespace BioTek.Services
                 );
 
                 if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation($"[FIREBASE] ✅ Push enviado para token {tokenCurto}.");
                     return true;
+                }
 
                 var error = await response.Content.ReadAsStringAsync();
 
                 if (error.Contains("UNREGISTERED") || error.Contains("INVALID_ARGUMENT") || error.Contains("NOT_FOUND"))
                 {
+                    _logger.LogWarning($"[FIREBASE] ⚠️ Token {tokenCurto} inválido. Desativando...");
                     await DesativarTokenAsync(token);
                 }
 
-                _logger.LogError($"[FIREBASE] Erro ao enviar: {error}");
+                _logger.LogError($"[FIREBASE] ❌ Erro ao enviar para token {tokenCurto}: {response.StatusCode} — {error}");
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[FIREBASE] Erro ao enviar notificação");
+                _logger.LogError(ex, $"[FIREBASE] ❌ Exceção ao enviar para token {tokenCurto}.");
                 return false;
             }
         }
-
+        
         public async Task<bool> SendMulticastAsync(
             List<string> tokens,
             string title,
@@ -196,7 +227,12 @@ namespace BioTek.Services
             Dictionary<string, string> data = null)
         {
             if (tokens == null || tokens.Count == 0)
+            {
+                _logger.LogWarning("[FIREBASE] SendMulticastAsync recebeu lista de tokens vazia.");
                 return false;
+            }
+
+            _logger.LogInformation($"[FIREBASE] Multicast iniciando: {tokens.Count} token(s).");
 
             var tarefas = tokens.Select(token =>
                 SendNotificationAsync(token, title, body, url, data)
@@ -204,13 +240,12 @@ namespace BioTek.Services
 
             var resultados = await Task.WhenAll(tarefas);
 
-            // 🆕 true se PELO MENOS UM token recebeu
             var enviados = resultados.Count(r => r);
-            _logger.LogInformation($"[FIREBASE] Multicast: {enviados}/{tokens.Count} tokens receberam.");
+
+            _logger.LogInformation($"[FIREBASE] Multicast finalizado: {enviados}/{tokens.Count} tokens receberam.");
 
             return enviados > 0;
         }
-
         public async Task<bool> SendReadingReminderAsync(string userId, string bookTitle, string bookId)
         {
             try

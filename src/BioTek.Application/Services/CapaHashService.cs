@@ -148,9 +148,8 @@ public class CapaHashService : ICapaHashService
                 .Take(maximo - totalCriados)
                 .ToList();
 
-            if (candidatos.Count == 0)
-                continue;
-
+            if (candidatos.Count > 0)
+            {
             await Parallel.ForEachAsync(
                 candidatos,
                 new ParallelOptions { MaxDegreeOfParallelism = PARALELISMO_MAX },
@@ -178,7 +177,6 @@ public class CapaHashService : ICapaHashService
                         await _capaHashRepository.AddAsync(capaHash);
 
                         System.Threading.Interlocked.Increment(ref totalCriados);
-                        idsProcessados.Add(obterId(item));
                     }
                     catch (Exception ex)
                     {
@@ -187,6 +185,7 @@ public class CapaHashService : ICapaHashService
                         erros.Add($"{obterId(item)}: {ex.Message}");
                     }
                 });
+            }
 
             if (pagina.Count < tamanhoPagina)
                 break;

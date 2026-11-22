@@ -15,7 +15,6 @@ public class CapaHashService : ICapaHashService
 
     // 🆕 Configurações
     private const double SIMILARIDADE_MINIMA = 0.75;
-    private const int DELAY_MS = 200;
     private const int LIMITE_RESULTADOS = 10;
     private const int LIMITE_POPULAR = 500;           // Máx por vez
     private const int PARALELISMO_MAX = 3;           // Downloads paralelos
@@ -128,6 +127,7 @@ public class CapaHashService : ICapaHashService
         var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == fonte))
             .Select(c => c.IdLivro).ToHashSet();
         var totalCriados = 0;
+        var totalTentados = 0;
         var skip = 0;
         const int tamanhoPagina = 100;
         var maximo = limite ?? LIMITE_POPULAR;
@@ -135,7 +135,7 @@ public class CapaHashService : ICapaHashService
         _logger.LogInformation("{Fonte}: {Total} hashes existentes; limite desta execução: {Limite}",
             fonte, idsProcessados.Count, maximo);
 
-        while (totalCriados < maximo)
+        while (totalTentados < maximo)
         {
             var pagina = (await repository.GetPaginadoAsync(
                 _ => true, skip, tamanhoPagina, "DataCriacao", true)).ToList();
@@ -145,17 +145,17 @@ public class CapaHashService : ICapaHashService
             skip += pagina.Count;
             var candidatos = pagina
                 .Where(item => !idsProcessados.Contains(obterId(item)))
-                .Take(maximo - totalCriados)
+                .Take(maximo - totalTentados)
                 .ToList();
 
             if (candidatos.Count > 0)
             {
-            await Parallel.ForEachAsync(
+                totalTentados += candidatos.Count;
+                await Parallel.ForEachAsync(
                 candidatos,
                 new ParallelOptions { MaxDegreeOfParallelism = PARALELISMO_MAX },
                 async (item, cancellationToken) =>
                 {
-                    var titulo = item?.ToString() ?? obterId(item);
                     try
                     {
                         var url = obterImagem(item);

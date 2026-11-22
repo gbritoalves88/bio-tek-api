@@ -413,8 +413,9 @@ public class CapaHashService : ICapaHashService
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var response = await _httpClient.GetAsync(url, cts.Token);
-            
+            using var response = await _httpClient.GetAsync(
+                url, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
             if (!response.IsSuccessStatusCode)
                 return null;
 

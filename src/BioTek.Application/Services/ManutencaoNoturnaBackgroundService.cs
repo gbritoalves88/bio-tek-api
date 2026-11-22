@@ -226,6 +226,8 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
         {
             _execucaoGate.Release();
         }
+    }
+
     private async Task ProcessarPendenciasAsync(
         ICapaHashService capaHashService,
         string fonte,

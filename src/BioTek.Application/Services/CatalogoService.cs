@@ -872,7 +872,7 @@ public class CatalogoService : ICatalogoService
             .Select(c => $"{c.Titulo.Trim()}|{c.Autor.Trim()}")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var chavesOpenLibraryExistentes = catalogosExistentes
-            .Where(c => !string.IsNullOrWhiteSpace(c.FonteId))
+            .Where(c => c.Fonte == "OpenLibrary" && !string.IsNullOrWhiteSpace(c.FonteId))
             .Select(c => c.FonteId!)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

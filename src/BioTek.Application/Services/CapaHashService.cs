@@ -18,7 +18,7 @@ public class CapaHashService : ICapaHashService
     private const int DELAY_MS = 200;
     private const int LIMITE_RESULTADOS = 10;
     private const int LIMITE_POPULAR = 500;           // Máx por vez
-    private const int PARALELISMO_MAX = 10;           // Downloads paralelos
+    private const int PARALELISMO_MAX = 3;           // Downloads paralelos
     private const int CACHE_MINUTOS = 30;             // Cache de hashes
 
     // 🆕 Cache em memória dos hashes
@@ -44,236 +44,63 @@ public class CapaHashService : ICapaHashService
     {
         if (fonte == "Catalogo")
         {
-            var idsProcessados = (await _capaHashRepository.GetAllAsync())
-                .Where(c => c.Fonte == "Catalogo")
-                .Select(c => c.IdLivro)
-                .ToHashSet();
-
-            var total = (await _catalogoRepository.GetAllAsync())
-                .Count(c => !idsProcessados.Contains(c.Id));
-
-            return total;
+            var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == "Catalogo"))
+                .Select(c => c.IdLivro).ToHashSet();
+            var total = await _catalogoRepository.CountAsync(_ => true);
+            return Math.Max(0, checked((int)total) - idsProcessados.Count);
         }
-        else if (fonte == "Livro")
+
+        if (fonte == "Livro")
         {
-            var idsProcessados = (await _capaHashRepository.GetAllAsync())
-                .Where(c => c.Fonte == "Livro")
-                .Select(c => c.IdLivro)
-                .ToHashSet();
-
-            var total = (await _livroRepository.GetAllAsync())
-                .Count(l => !idsProcessados.Contains(l.Id));
-
-            return total;
+            var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == "Livro"))
+                .Select(c => c.IdLivro).ToHashSet();
+            var total = await _livroRepository.CountAsync(_ => true);
+            return Math.Max(0, checked((int)total) - idsProcessados.Count);
         }
 
         return 0;
     }
 
-
     // ============ POPULAR ============
 
     public async Task<object> PopularAsync(int? limiteCatalogo = null, int? limiteLivros = null)
     {
-        // 🆕 Validar limites
-        if (limiteCatalogo.HasValue && limiteCatalogo.Value > LIMITE_POPULAR)
-            throw new InvalidOperationException($"Limite máximo: {LIMITE_POPULAR} por vez");
-        
-        if (limiteLivros.HasValue && limiteLivros.Value > LIMITE_POPULAR)
-            throw new InvalidOperationException($"Limite máximo: {LIMITE_POPULAR} por vez");
+        if (limiteCatalogo is < 0 or > LIMITE_POPULAR)
+            throw new InvalidOperationException($"Limite do catálogo deve estar entre 0 e {LIMITE_POPULAR}");
+        if (limiteLivros is < 0 or > LIMITE_POPULAR)
+            throw new InvalidOperationException($"Limite de livros deve estar entre 0 e {LIMITE_POPULAR}");
 
-        var totalCatalogo = 0;
-        var totalLivros = 0;
-        var errosCatalogo = new List<string>();
-        var errosLivros = new List<string>();
+        var errosCatalogo = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var errosLivros = new System.Collections.Concurrent.ConcurrentBag<string>();
 
-        // ============ 1. POPULAR DO CATÁLOGO ============
-        
-        // 🆕 Carregar IDs já processados (UMA query)
-        var idsCatalogoProcessados = (await _capaHashRepository.GetAllAsync())
-            .Where(c => c.Fonte == "Catalogo")
-            .Select(c => c.IdLivro)
-            .ToHashSet();
-        
-        _logger.LogInformation($"📊 Catálogo: {idsCatalogoProcessados.Count} hashes já processados");
-
-        // 🆕 Buscar todos os catálogos
-        var todosCatalogos = (await _catalogoRepository.GetAllAsync())
-            .Where(c => !idsCatalogoProcessados.Contains(c.Id))  // Filtrar já processados
-            .ToList();
-        
-        _logger.LogInformation($"📊 Catálogo: {todosCatalogos.Count} livros para processar");
-        
-        // 🆕 Aplicar limite (pega os PRIMEIROS N não processados)
-        if (limiteCatalogo.HasValue)
-            todosCatalogos = todosCatalogos.Take(limiteCatalogo.Value).ToList();
-        
-        _logger.LogInformation($"📊 Catálogo: processando {todosCatalogos.Count} livros neste lote");
-
-        // 🆕 Processar em paralelo
-        var semaphore = new SemaphoreSlim(PARALELISMO_MAX);
-        
-        var tarefasCatalogo = todosCatalogos.Select(async catalogo =>
-        {
-            await semaphore.WaitAsync();
-            try
+        var totalCatalogo = await ProcessarFonteAsync(
+            _catalogoRepository,
+            "Catalogo",
+            limiteCatalogo,
+            c => c.Id,
+            c => c.Imagem,
+            c => new CapaHash
             {
-                if (string.IsNullOrEmpty(catalogo.Imagem))
-                {
-                    lock (errosCatalogo)
-                        errosCatalogo.Add($"{catalogo.Titulo}: sem imagem");
-                    return;
-                }
+                IdLivro = c.Id, Fonte = "Catalogo", Titulo = c.Titulo,
+                Autor = c.Autor, ImagemUrl = c.Imagem, DataCriacao = DateTime.UtcNow
+            },
+            errosCatalogo);
 
-                var imageBytes = await BaixarImagemAsync(catalogo.Imagem);
-                if (imageBytes == null)
-                {
-                    lock (errosCatalogo)
-                        errosCatalogo.Add($"{catalogo.Titulo}: erro ao baixar imagem");
-                    return;
-                }
-
-                long hash;
-                try
-                {
-                    hash = PerceptualHash.Calcular(imageBytes);
-                }
-                catch (Exception ex)
-                {
-                    lock (errosCatalogo)
-                        errosCatalogo.Add($"{catalogo.Titulo}: erro ao gerar hash - {ex.Message}");
-                    return;
-                }
-
-                var capaHash = new CapaHash
-                {
-                    IdLivro = catalogo.Id,
-                    Fonte = "Catalogo",
-                    Hash = hash,
-                    Titulo = catalogo.Titulo,
-                    Autor = catalogo.Autor,
-                    ImagemUrl = catalogo.Imagem,
-                    DataCriacao = DateTime.UtcNow
-                };
-
-                await _capaHashRepository.AddAsync(capaHash);
-                
-                lock (errosCatalogo)
-                {
-                    totalCatalogo++;
-                    if (totalCatalogo % 50 == 0)
-                        _logger.LogInformation($"Catálogo: {totalCatalogo} hashes gerados");
-                }
-
-                await Task.Delay(DELAY_MS);
-            }
-            catch (Exception ex)
+        var totalLivros = await ProcessarFonteAsync(
+            _livroRepository,
+            "Livro",
+            limiteLivros,
+            l => l.Id,
+            l => l.Imagem,
+            l => new CapaHash
             {
-                _logger.LogError(ex, $"Erro ao processar catálogo: {catalogo.Titulo}");
-                lock (errosCatalogo)
-                    errosCatalogo.Add($"{catalogo.Titulo}: {ex.Message}");
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
+                IdLivro = l.Id, Fonte = "Livro", Titulo = l.Titulo,
+                Autor = l.Autor, ImagemUrl = l.Imagem, DataCriacao = DateTime.UtcNow
+            },
+            errosLivros);
 
-        await Task.WhenAll(tarefasCatalogo);
-
-        // ============ 2. POPULAR DOS LIVROS ============
-        
-        // 🆕 Carregar IDs já processados
-        var idsLivrosProcessados = (await _capaHashRepository.GetAllAsync())
-            .Where(c => c.Fonte == "Livro")
-            .Select(c => c.IdLivro)
-            .ToHashSet();
-        
-        _logger.LogInformation($"📊 Livros: {idsLivrosProcessados.Count} hashes já processados");
-
-        // 🆕 Buscar todos os livros
-        var todosLivros = (await _livroRepository.GetAllAsync())
-            .Where(l => !idsLivrosProcessados.Contains(l.Id))  // Filtrar já processados
-            .ToList();
-        
-        _logger.LogInformation($"📊 Livros: {todosLivros.Count} livros para processar");
-        
-        // 🆕 Aplicar limite
-        if (limiteLivros.HasValue)
-            todosLivros = todosLivros.Take(limiteLivros.Value).ToList();
-        
-        _logger.LogInformation($"📊 Livros: processando {todosLivros.Count} livros neste lote");
-
-        var tarefasLivros = todosLivros.Select(async livro =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                if (string.IsNullOrEmpty(livro.Imagem))
-                {
-                    lock (errosLivros)
-                        errosLivros.Add($"{livro.Titulo}: sem imagem");
-                    return;
-                }
-
-                var imageBytes = await BaixarImagemAsync(livro.Imagem);
-                if (imageBytes == null)
-                {
-                    lock (errosLivros)
-                        errosLivros.Add($"{livro.Titulo}: erro ao baixar imagem");
-                    return;
-                }
-
-                long hash;
-                try
-                {
-                    hash = PerceptualHash.Calcular(imageBytes);
-                }
-                catch (Exception ex)
-                {
-                    lock (errosLivros)
-                        errosLivros.Add($"{livro.Titulo}: erro ao gerar hash - {ex.Message}");
-                    return;
-                }
-
-                var capaHash = new CapaHash
-                {
-                    IdLivro = livro.Id,
-                    Fonte = "Livro",
-                    Hash = hash,
-                    Titulo = livro.Titulo,
-                    Autor = livro.Autor,
-                    ImagemUrl = livro.Imagem,
-                    DataCriacao = DateTime.UtcNow
-                };
-
-                await _capaHashRepository.AddAsync(capaHash);
-                
-                lock (errosLivros)
-                {
-                    totalLivros++;
-                    if (totalLivros % 50 == 0)
-                        _logger.LogInformation($"Livros: {totalLivros} hashes gerados");
-                }
-
-                await Task.Delay(DELAY_MS);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Erro ao processar livro: {livro.Titulo}");
-                lock (errosLivros)
-                    errosLivros.Add($"{livro.Titulo}: {ex.Message}");
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-
-        await Task.WhenAll(tarefasLivros);
-
-        // 🆕 Invalidar cache após popular
-        InvalidarCache();
+        if (totalCatalogo + totalLivros > 0)
+            InvalidarCache();
 
         return new
         {
@@ -283,14 +110,91 @@ public class CapaHashService : ICapaHashService
             TotalGeral = totalCatalogo + totalLivros,
             ErrosCatalogo = errosCatalogo.Count,
             ErrosLivros = errosLivros.Count,
-            // 🆕 Info sobre o que falta
-            CatalogoProcessado = idsCatalogoProcessados.Count + totalCatalogo,
-            CatalogoTotal = idsCatalogoProcessados.Count + todosCatalogos.Count,
-            LivrosProcessado = idsLivrosProcessados.Count + totalLivros,
-            LivrosTotal = idsLivrosProcessados.Count + todosLivros.Count,
-            DetalhesErrosCatalogo = errosCatalogo.Take(10),
-            DetalhesErrosLivros = errosLivros.Take(10)
+            DetalhesErrosCatalogo = errosCatalogo.Take(10).ToArray(),
+            DetalhesErrosLivros = errosLivros.Take(10).ToArray()
         };
+    }
+
+    private async Task<int> ProcessarFonteAsync<T>(
+        IRepository<T> repository,
+        string fonte,
+        int? limite,
+        Func<T, string> obterId,
+        Func<T, string?> obterImagem,
+        Func<T, CapaHash> criarHash,
+        System.Collections.Concurrent.ConcurrentBag<string> erros)
+        where T : class
+    {
+        var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == fonte))
+            .Select(c => c.IdLivro).ToHashSet();
+        var totalCriados = 0;
+        var skip = 0;
+        const int tamanhoPagina = 100;
+        var maximo = limite ?? LIMITE_POPULAR;
+
+        _logger.LogInformation("{Fonte}: {Total} hashes existentes; limite desta execução: {Limite}",
+            fonte, idsProcessados.Count, maximo);
+
+        while (totalCriados < maximo)
+        {
+            var pagina = (await repository.GetPaginadoAsync(
+                _ => true, skip, tamanhoPagina, "DataCriacao", true)).ToList();
+            if (pagina.Count == 0)
+                break;
+
+            skip += pagina.Count;
+            var candidatos = pagina
+                .Where(item => !idsProcessados.Contains(obterId(item)))
+                .Take(maximo - totalCriados)
+                .ToList();
+
+            if (candidatos.Count == 0)
+                continue;
+
+            await Parallel.ForEachAsync(
+                candidatos,
+                new ParallelOptions { MaxDegreeOfParallelism = PARALELISMO_MAX },
+                async (item, cancellationToken) =>
+                {
+                    var titulo = item?.ToString() ?? obterId(item);
+                    try
+                    {
+                        var url = obterImagem(item);
+                        if (string.IsNullOrWhiteSpace(url))
+                        {
+                            erros.Add($"{obterId(item)}: sem imagem");
+                            return;
+                        }
+
+                        var imageBytes = await BaixarImagemAsync(url);
+                        if (imageBytes == null)
+                        {
+                            erros.Add($"{obterId(item)}: erro ao baixar imagem");
+                            return;
+                        }
+
+                        var capaHash = criarHash(item);
+                        capaHash.Hash = PerceptualHash.Calcular(imageBytes);
+                        await _capaHashRepository.AddAsync(capaHash);
+
+                        System.Threading.Interlocked.Increment(ref totalCriados);
+                        idsProcessados.Add(obterId(item));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Erro ao gerar hash da fonte {Fonte}, registro {Id}",
+                            fonte, obterId(item));
+                        erros.Add($"{obterId(item)}: {ex.Message}");
+                    }
+                });
+
+            if (pagina.Count < tamanhoPagina)
+                break;
+        }
+
+        _logger.LogInformation("{Fonte}: {Criados} hashes criados; {Erros} falhas",
+            fonte, totalCriados, erros.Count);
+        return totalCriados;
     }
 
     // ============ BUSCAR ============

@@ -319,6 +319,13 @@ builder.Services.AddScoped<IRepository<CapaHash>>(sp =>
     return new MongoRepository<CapaHash>(context, "CapaHashes");
 });
 
+// Controle do processamento de hashes de capas
+builder.Services.AddScoped<IRepository<CapaHashControle>>(sp =>
+{
+    var context = sp.GetRequiredService<MongoDbContext>();
+    return new MongoRepository<CapaHashControle>(context, "CapaHashControle");
+});
+
 builder.Services.AddScoped<IRepository<StreakUsuario>>(sp =>
 {
     var context = sp.GetRequiredService<MongoDbContext>();
@@ -442,6 +449,20 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Índice único para impedir controles duplicados por fonte e livro.
+var capaHashControleCollection = app.Services
+    .GetRequiredService<MongoDbContext>()
+    .GetCollection<CapaHashControle>("CapaHashControle");
+await capaHashControleCollection.Indexes.CreateOneAsync(
+    new CreateIndexModel<CapaHashControle>(
+        Builders<CapaHashControle>.IndexKeys
+            .Ascending(x => x.Fonte)
+            .Ascending(x => x.IdLivro),
+        new CreateIndexOptions
+        {
+            Unique = true,
+            Name = "ux_capa_hash_controle_fonte_idlivro"
+        }));
 
 // 🆕 Diagnóstico Firebase na inicialização
 try

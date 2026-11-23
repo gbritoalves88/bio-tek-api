@@ -109,8 +109,8 @@ public class CapaHashService : ICapaHashService
                 },
                 errosLivros);
 
-        if (totalCatalogo + totalLivros > 0)
-            InvalidarCache();
+            if (totalCatalogo + totalLivros > 0)
+                InvalidarCache();
 
             return new
             {
@@ -235,9 +235,11 @@ public class CapaHashService : ICapaHashService
     {
         var registros = (await repository.GetAllAsync()).ToList();
         var hashes = (await _capaHashRepository.FindAsync(h => h.Fonte == fonte))
-            .ToDictionary(h => h.IdLivro, StringComparer.Ordinal);
+            .GroupBy(h => h.IdLivro, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var controles = (await _controleRepository.FindAsync(c => c.Fonte == fonte))
-            .ToDictionary(c => c.IdLivro, StringComparer.Ordinal);
+            .GroupBy(c => c.IdLivro, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         foreach (var registro in registros)
         {

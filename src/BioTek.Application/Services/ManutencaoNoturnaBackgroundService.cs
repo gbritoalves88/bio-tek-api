@@ -16,7 +16,7 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
     private const int LOTE_HASH = 100;           // 100 por lote
     private const int DELAY_ENTRE_LOTES_MS = 30000; // 30s entre lotes
     private const int DELAY_APOS_IMPORTACAO_MS = 300000; // 5 min após importação
-    private static bool _rodando = false;
+    private static readonly SemaphoreSlim _execucaoGate = new(1, 1);
     public ManutencaoNoturnaBackgroundService(
         IServiceProvider serviceProvider,
         ILogger<ManutencaoNoturnaBackgroundService> logger)
@@ -28,24 +28,13 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
 
     public async Task ExecutarManualmenteAsync()
     {
-        if (_rodando)
-        {
-            _logger.LogWarning("⚠️ Manutenção já está rodando. Ignorando chamada.");
-            return;
-        }
-
         try
         {
-            _rodando = true;
             await ExecutarManutencaoAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Erro na execução manual");
-        }
-        finally
-        {
-            _rodando = false;
         }
     }
 
@@ -110,6 +99,9 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
 
     private async Task ExecutarManutencaoAsync(CancellationToken stoppingToken)
     {
+        await _execucaoGate.WaitAsync(stoppingToken);
+        try
+        {
         _logger.LogInformation("🌙 ========== INICIANDO MANUTENÇÃO NOTURNA ==========");
         var inicio = DateTime.UtcNow;
 
@@ -203,31 +195,7 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
         {
             _logger.LogInformation("🖼️ Etapa 2: Gerando hashes do catálogo...");
 
-            var pendentes = await capaHashService.ContarPendentesAsync("Catalogo");
-            _logger.LogInformation($"📊 Catálogo: {pendentes} hashes pendentes");
-
-            while (pendentes > 0 && !stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    var resultado = await capaHashService.PopularAsync(LOTE_HASH, 0);
-                    _logger.LogInformation($"✅ Lote processado: {LOTE_HASH} catálogos");
-                    
-                    pendentes -= LOTE_HASH;
-                    
-                    if (pendentes > 0)
-                    {
-                        _logger.LogInformation($"⏸️ Aguardando {DELAY_ENTRE_LOTES_MS / 1000}s antes do próximo lote...");
-                        await Task.Delay(DELAY_ENTRE_LOTES_MS, stoppingToken);
-                    }
-                }
-                catch (TaskCanceledException) { return; }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "⚠️ Erro em lote de hashes (continuando...)");
-                    await Task.Delay(60000, stoppingToken);
-                }
-            }
+            await ProcessarPendenciasAsync(capaHashService, "Catalogo", stoppingToken);
 
             _logger.LogInformation("✅ Catálogo concluído");
         }
@@ -241,30 +209,7 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
         {
             _logger.LogInformation("📚 Etapa 3: Gerando hashes dos livros...");
 
-            var pendentes = await capaHashService.ContarPendentesAsync("Livro");
-            _logger.LogInformation($"📊 Livros: {pendentes} hashes pendentes");
-
-            while (pendentes > 0 && !stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    var resultado = await capaHashService.PopularAsync(0, LOTE_HASH);
-                    _logger.LogInformation($"✅ Lote processado: {LOTE_HASH} livros");
-                    
-                    pendentes -= LOTE_HASH;
-                    
-                    if (pendentes > 0)
-                    {
-                        await Task.Delay(DELAY_ENTRE_LOTES_MS, stoppingToken);
-                    }
-                }
-                catch (TaskCanceledException) { return; }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "⚠️ Erro em lote de hashes (continuando...)");
-                    await Task.Delay(60000, stoppingToken);
-                }
-            }
+            await ProcessarPendenciasAsync(capaHashService, "Livro", stoppingToken);
 
             _logger.LogInformation("✅ Livros concluído");
         }
@@ -276,5 +221,46 @@ public class ManutencaoNoturnaBackgroundService : BackgroundService
         // ============ RESUMO ============
         var duracao = DateTime.UtcNow - inicio;
         _logger.LogInformation($"🌙 ========== MANUTENÇÃO CONCLUÍDA em {duracao.TotalMinutes:F1} min ==========");
+        }
+        finally
+        {
+            _execucaoGate.Release();
+        }
+    }
+
+    private async Task ProcessarPendenciasAsync(
+        ICapaHashService capaHashService,
+        string fonte,
+        CancellationToken stoppingToken)
+    {
+        var pendentes = await capaHashService.ContarPendentesAsync(fonte);
+        _logger.LogInformation("{Fonte}: {Pendentes} hashes pendentes", fonte, pendentes);
+
+        while (pendentes > 0 && !stoppingToken.IsCancellationRequested)
+        {
+            var resultado = await capaHashService.PopularAsync(
+                fonte == "Catalogo" ? LOTE_HASH : 0,
+                fonte == "Livro" ? LOTE_HASH : 0);
+
+            var novosPendentes = await capaHashService.ContarPendentesAsync(fonte);
+            var processados = pendentes - novosPendentes;
+            _logger.LogInformation(
+                "{Fonte}: lote concluído. Pendentes antes: {Antes}; depois: {Depois}; avanço: {Avanco}. Resultado: {Resultado}",
+                fonte, pendentes, novosPendentes, processados, resultado);
+
+            if (processados <= 0)
+            {
+                _logger.LogWarning(
+                    "{Fonte}: nenhum avanço no lote. Encerrando para evitar loop infinito; itens sem imagem ou com falha poderão ser tentados na próxima execução.",
+                    fonte);
+                break;
+            }
+
+            pendentes = novosPendentes;
+            if (pendentes > 0)
+                await Task.Delay(DELAY_ENTRE_LOTES_MS, stoppingToken);
+        }
+    }
+
     }
 }

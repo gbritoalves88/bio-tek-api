@@ -8,7 +8,9 @@ namespace BioTek.Application.Services;
 public class CapaHashService : ICapaHashService
 {
     private readonly IRepository<CapaHash> _capaHashRepository;
+    private readonly IRepository<CapaHashControle> _controleRepository;
     private readonly IRepository<Catalogo> _catalogoRepository;
+    private static readonly SemaphoreSlim _processamentoGate = new(1, 1);
     private readonly IRepository<Livro> _livroRepository;
     private readonly HttpClient _httpClient;
     private readonly ILogger<CapaHashService> _logger;
@@ -27,12 +29,14 @@ public class CapaHashService : ICapaHashService
 
     public CapaHashService(
         IRepository<CapaHash> capaHashRepository,
+        IRepository<CapaHashControle> controleRepository,
         IRepository<Catalogo> catalogoRepository,
         IRepository<Livro> livroRepository,
         HttpClient httpClient,
         ILogger<CapaHashService> logger)
     {
         _capaHashRepository = capaHashRepository;
+        _controleRepository = controleRepository;
         _catalogoRepository = catalogoRepository;
         _livroRepository = livroRepository;
         _httpClient = httpClient;
@@ -43,18 +47,22 @@ public class CapaHashService : ICapaHashService
     {
         if (fonte == "Catalogo")
         {
-            var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == "Catalogo"))
-                .Select(c => c.IdLivro).ToHashSet();
-            var total = await _catalogoRepository.CountAsync(_ => true);
-            return Math.Max(0, checked((int)total) - idsProcessados.Count);
+            var estado = await SincronizarControlesAsync(
+                _catalogoRepository, fonte, c => c.Id, c => c.Imagem);
+            return estado.Controles.Values.Count(c =>
+                c.Status == CapaHashControleStatus.Pendente ||
+                (c.Status == CapaHashControleStatus.Erro &&
+                 (c.ProximaTentativa == null || c.ProximaTentativa <= DateTime.UtcNow)));
         }
 
         if (fonte == "Livro")
         {
-            var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == "Livro"))
-                .Select(c => c.IdLivro).ToHashSet();
-            var total = await _livroRepository.CountAsync(_ => true);
-            return Math.Max(0, checked((int)total) - idsProcessados.Count);
+            var estado = await SincronizarControlesAsync(
+                _livroRepository, fonte, l => l.Id, l => l.Imagem);
+            return estado.Controles.Values.Count(c =>
+                c.Status == CapaHashControleStatus.Pendente ||
+                (c.Status == CapaHashControleStatus.Erro &&
+                 (c.ProximaTentativa == null || c.ProximaTentativa <= DateTime.UtcNow)));
         }
 
         return 0;
@@ -69,49 +77,57 @@ public class CapaHashService : ICapaHashService
         if (limiteLivros is < 0 or > LIMITE_POPULAR)
             throw new InvalidOperationException($"Limite de livros deve estar entre 0 e {LIMITE_POPULAR}");
 
-        var errosCatalogo = new System.Collections.Concurrent.ConcurrentBag<string>();
-        var errosLivros = new System.Collections.Concurrent.ConcurrentBag<string>();
+        await _processamentoGate.WaitAsync();
+        try
+        {
+            var errosCatalogo = new System.Collections.Concurrent.ConcurrentBag<string>();
+            var errosLivros = new System.Collections.Concurrent.ConcurrentBag<string>();
 
-        var totalCatalogo = await ProcessarFonteAsync(
-            _catalogoRepository,
-            "Catalogo",
-            limiteCatalogo,
-            c => c.Id,
-            c => c.Imagem,
-            c => new CapaHash
-            {
-                IdLivro = c.Id, Fonte = "Catalogo", Titulo = c.Titulo,
-                Autor = c.Autor, ImagemUrl = c.Imagem, DataCriacao = DateTime.UtcNow
-            },
-            errosCatalogo);
+            var totalCatalogo = await ProcessarFonteAsync(
+                _catalogoRepository,
+                "Catalogo",
+                limiteCatalogo,
+                c => c.Id,
+                c => c.Imagem,
+                c => new CapaHash
+                {
+                    IdLivro = c.Id, Fonte = "Catalogo", Titulo = c.Titulo,
+                    Autor = c.Autor, ImagemUrl = c.Imagem, DataCriacao = DateTime.UtcNow
+                },
+                errosCatalogo);
 
-        var totalLivros = await ProcessarFonteAsync(
-            _livroRepository,
-            "Livro",
-            limiteLivros,
-            l => l.Id,
-            l => l.Imagem,
-            l => new CapaHash
-            {
-                IdLivro = l.Id, Fonte = "Livro", Titulo = l.Titulo,
-                Autor = l.Autor, ImagemUrl = l.Imagem, DataCriacao = DateTime.UtcNow
-            },
-            errosLivros);
+            var totalLivros = await ProcessarFonteAsync(
+                _livroRepository,
+                "Livro",
+                limiteLivros,
+                l => l.Id,
+                l => l.Imagem,
+                l => new CapaHash
+                {
+                    IdLivro = l.Id, Fonte = "Livro", Titulo = l.Titulo,
+                    Autor = l.Autor, ImagemUrl = l.Imagem, DataCriacao = DateTime.UtcNow
+                },
+                errosLivros);
 
         if (totalCatalogo + totalLivros > 0)
             InvalidarCache();
 
-        return new
+            return new
+            {
+                Mensagem = "População concluída",
+                TotalCatalogo = totalCatalogo,
+                TotalLivros = totalLivros,
+                TotalGeral = totalCatalogo + totalLivros,
+                ErrosCatalogo = errosCatalogo.Count,
+                ErrosLivros = errosLivros.Count,
+                DetalhesErrosCatalogo = errosCatalogo.Take(10).ToArray(),
+                DetalhesErrosLivros = errosLivros.Take(10).ToArray()
+            };
+        }
+        finally
         {
-            Mensagem = "População concluída",
-            TotalCatalogo = totalCatalogo,
-            TotalLivros = totalLivros,
-            TotalGeral = totalCatalogo + totalLivros,
-            ErrosCatalogo = errosCatalogo.Count,
-            ErrosLivros = errosLivros.Count,
-            DetalhesErrosCatalogo = errosCatalogo.Take(10).ToArray(),
-            DetalhesErrosLivros = errosLivros.Take(10).ToArray()
-        };
+            _processamentoGate.Release();
+        }
     }
 
     private async Task<int> ProcessarFonteAsync<T>(
@@ -124,76 +140,193 @@ public class CapaHashService : ICapaHashService
         System.Collections.Concurrent.ConcurrentBag<string> erros)
         where T : class
     {
-        var idsProcessados = (await _capaHashRepository.FindAsync(c => c.Fonte == fonte))
-            .Select(c => c.IdLivro).ToHashSet();
+        var estado = await SincronizarControlesAsync(repository, fonte, obterId, obterImagem);
+        var agora = DateTime.UtcNow;
+        var candidatos = estado.Controles.Values
+            .Where(c => c.Status == CapaHashControleStatus.Pendente ||
+                (c.Status == CapaHashControleStatus.Erro &&
+                 (c.ProximaTentativa == null || c.ProximaTentativa <= agora)))
+            .OrderBy(c => c.DataCriacao)
+            .Take(limite ?? LIMITE_POPULAR)
+            .ToList();
+
+        var registrosPorId = estado.Registros.ToDictionary(obterId, StringComparer.Ordinal);
         var totalCriados = 0;
-        var totalTentados = 0;
-        var skip = 0;
-        const int tamanhoPagina = 100;
-        var maximo = limite ?? LIMITE_POPULAR;
 
-        _logger.LogInformation("{Fonte}: {Total} hashes existentes; limite desta execução: {Limite}",
-            fonte, idsProcessados.Count, maximo);
+        _logger.LogInformation(
+            "{Fonte}: {Total} controles; {Pendentes} elegíveis para processamento; limite: {Limite}",
+            fonte, estado.Controles.Count, candidatos.Count, limite ?? LIMITE_POPULAR);
 
-        while (totalTentados < maximo)
-        {
-            var pagina = (await repository.GetPaginadoAsync(
-                _ => true, skip, tamanhoPagina, "DataCriacao", true)).ToList();
-            if (pagina.Count == 0)
-                break;
-
-            skip += pagina.Count;
-            var candidatos = pagina
-                .Where(item => !idsProcessados.Contains(obterId(item)))
-                .Take(maximo - totalTentados)
-                .ToList();
-
-            if (candidatos.Count > 0)
+        await Parallel.ForEachAsync(
+            candidatos,
+            new ParallelOptions { MaxDegreeOfParallelism = PARALELISMO_MAX },
+            async (controle, cancellationToken) =>
             {
-                totalTentados += candidatos.Count;
-                await Parallel.ForEachAsync(
-                candidatos,
-                new ParallelOptions { MaxDegreeOfParallelism = PARALELISMO_MAX },
-                async (item, cancellationToken) =>
+                if (!registrosPorId.TryGetValue(controle.IdLivro, out var registro))
+                    return;
+
+                try
                 {
-                    try
+                    var url = obterImagem(registro);
+                    if (string.IsNullOrWhiteSpace(url))
                     {
-                        var url = obterImagem(item);
-                        if (string.IsNullOrWhiteSpace(url))
-                        {
-                            erros.Add($"{obterId(item)}: sem imagem");
-                            return;
-                        }
+                        controle.Status = CapaHashControleStatus.SemImagem;
+                        controle.UltimaTentativa = DateTime.UtcNow;
+                        controle.ProximaTentativa = null;
+                        controle.UltimoErro = null;
+                        await _controleRepository.UpdateAsync(controle.Id, controle);
+                        return;
+                    }
 
-                        var imageBytes = await BaixarImagemAsync(url);
-                        if (imageBytes == null)
-                        {
-                            erros.Add($"{obterId(item)}: erro ao baixar imagem");
-                            return;
-                        }
+                    var imageBytes = await BaixarImagemAsync(url);
+                    if (imageBytes == null)
+                        throw new HttpRequestException("Não foi possível baixar a imagem.");
 
-                        var capaHash = criarHash(item);
+                    var hashExistente = (await _capaHashRepository.FindAsync(c =>
+                        c.Fonte == fonte && c.IdLivro == controle.IdLivro)).FirstOrDefault();
+
+                    if (hashExistente == null)
+                    {
+                        var capaHash = criarHash(registro);
                         capaHash.Hash = PerceptualHash.Calcular(imageBytes);
                         await _capaHashRepository.AddAsync(capaHash);
-
-                        System.Threading.Interlocked.Increment(ref totalCriados);
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Erro ao gerar hash da fonte {Fonte}, registro {Id}",
-                            fonte, obterId(item));
-                        erros.Add($"{obterId(item)}: {ex.Message}");
-                    }
-                });
-            }
 
-            if (pagina.Count < tamanhoPagina)
-                break;
-        }
+                    controle.Status = CapaHashControleStatus.Processado;
+                    controle.ImagemUrl = url;
+                    controle.UltimaTentativa = DateTime.UtcNow;
+                    controle.ProximaTentativa = null;
+                    controle.UltimoErro = null;
+                    await _controleRepository.UpdateAsync(controle.Id, controle);
+
+                    System.Threading.Interlocked.Increment(ref totalCriados);
+                }
+                catch (Exception ex)
+                {
+                    controle.Status = CapaHashControleStatus.Erro;
+                    controle.Tentativas++;
+                    controle.UltimaTentativa = DateTime.UtcNow;
+                    controle.ProximaTentativa = DateTime.UtcNow.AddHours(
+                        Math.Min(24, Math.Pow(2, Math.Min(controle.Tentativas, 5))));
+                    controle.UltimoErro = ex.Message.Length > 1000
+                        ? ex.Message[..1000]
+                        : ex.Message;
+                    await _controleRepository.UpdateAsync(controle.Id, controle);
+
+                    _logger.LogError(ex,
+                        "Erro ao gerar hash da fonte {Fonte}, registro {Id}",
+                        fonte, controle.IdLivro);
+                    erros.Add($"{controle.IdLivro}: {ex.Message}");
+                }
+            });
 
         _logger.LogInformation("{Fonte}: {Criados} hashes criados; {Erros} falhas",
             fonte, totalCriados, erros.Count);
         return totalCriados;
+    }
+
+    private async Task<(List<T> Registros, Dictionary<string, CapaHashControle> Controles)>
+        SincronizarControlesAsync<T>(
+            IRepository<T> repository,
+            string fonte,
+            Func<T, string> obterId,
+            Func<T, string?> obterImagem)
+        where T : class
+    {
+        var registros = (await repository.GetAllAsync()).ToList();
+        var hashes = (await _capaHashRepository.FindAsync(h => h.Fonte == fonte))
+            .ToDictionary(h => h.IdLivro, StringComparer.Ordinal);
+        var controles = (await _controleRepository.FindAsync(c => c.Fonte == fonte))
+            .ToDictionary(c => c.IdLivro, StringComparer.Ordinal);
+
+        foreach (var registro in registros)
+        {
+            var id = obterId(registro);
+            var imagem = obterImagem(registro);
+            var temImagem = !string.IsNullOrWhiteSpace(imagem);
+            var temHash = hashes.TryGetValue(id, out var hashExistente);
+            var controleExistente = controles.GetValueOrDefault(id);
+            var imagemAnterior = controleExistente?.ImagemUrl ?? hashExistente?.ImagemUrl;
+
+            if (temHash && (!temImagem || imagemAnterior != imagem))
+            {
+                await _capaHashRepository.DeleteAsync(hashExistente!.Id);
+                hashes.Remove(id);
+                temHash = false;
+            }
+
+            if (!controles.TryGetValue(id, out var controle))
+            {
+                controle = new CapaHashControle
+                {
+                    IdLivro = id,
+                    Fonte = fonte,
+                    Status = temHash
+                        ? CapaHashControleStatus.Processado
+                        : temImagem
+                            ? CapaHashControleStatus.Pendente
+                            : CapaHashControleStatus.SemImagem,
+                    ImagemUrl = imagem,
+                    UltimaTentativa = temHash ? DateTime.UtcNow : null
+                };
+
+                try
+                {
+                    await _controleRepository.AddAsync(controle);
+                    controles[id] = controle;
+                }
+                catch (Exception ex)
+                {
+                    // Índice único protege contra criação concorrente por outra instância.
+                    var existente = (await _controleRepository.FindAsync(c =>
+                        c.Fonte == fonte && c.IdLivro == id)).FirstOrDefault();
+                    if (existente == null) throw;
+                    controles[id] = existente;
+                    controle = existente;
+                }
+            }
+
+            if (temHash && controle.Status != CapaHashControleStatus.Processado)
+            {
+                controle.Status = CapaHashControleStatus.Processado;
+                controle.ImagemUrl = imagem;
+                controle.ProximaTentativa = null;
+                controle.UltimoErro = null;
+                await _controleRepository.UpdateAsync(controle.Id, controle);
+            }
+            else if (!temHash &&
+                (!temImagem ||
+                 controle.Status == CapaHashControleStatus.SemImagem ||
+                 controle.Status == CapaHashControleStatus.Processado ||
+                 (!string.IsNullOrWhiteSpace(imagem) && controle.ImagemUrl != imagem)))
+            {
+                if (!temImagem)
+                {
+                    controle.Status = CapaHashControleStatus.SemImagem;
+                    controle.ProximaTentativa = null;
+                    controle.UltimoErro = null;
+                }
+                else
+                {
+                    controle.Status = CapaHashControleStatus.Pendente;
+                    controle.Tentativas = 0;
+                    controle.ProximaTentativa = null;
+                    controle.UltimoErro = null;
+                }
+
+                controle.ImagemUrl = imagem;
+                await _controleRepository.UpdateAsync(controle.Id, controle);
+            }
+        }
+
+        var idsAtuais = registros.Select(obterId).ToHashSet(StringComparer.Ordinal);
+        foreach (var controleObsoleto in controles.Values.Where(c => !idsAtuais.Contains(c.IdLivro)).ToList())
+        {
+            await _controleRepository.DeleteAsync(controleObsoleto.Id);
+            controles.Remove(controleObsoleto.IdLivro);
+        }
+
+        return (registros, controles);
     }
 
     // ============ BUSCAR ============

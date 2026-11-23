@@ -9,12 +9,12 @@ namespace BioTek.Api.Controllers;
 /// Endpoints temporários para diagnóstico manual de importação e geração de CapaHashes.
 /// Remover após concluir os testes.
 /// </summary>
+#if DEBUG
 [ApiController]
 [Route("api/testes-importacao")]
 [ApiExplorerSettings(IgnoreApi = true)]
 [AllowAnonymous]
 [EnableRateLimiting("AdminPolicy")]
-#if DEBUG
 public class TestesImportacaoController : ControllerBase
 {
     private readonly ICatalogoService _catalogoService;

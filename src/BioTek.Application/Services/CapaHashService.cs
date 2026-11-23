@@ -248,7 +248,7 @@ public class CapaHashService : ICapaHashService
             var temImagem = !string.IsNullOrWhiteSpace(imagem);
             var temHash = hashes.TryGetValue(id, out var hashExistente);
             var controleExistente = controles.GetValueOrDefault(id);
-            var imagemAnterior = controleExistente?.ImagemUrl ?? hashExistente?.ImagemUrl;
+            var imagemAnterior = hashExistente?.ImagemUrl ?? controleExistente?.ImagemUrl;
 
             if (temHash && (!temImagem || imagemAnterior != imagem))
             {

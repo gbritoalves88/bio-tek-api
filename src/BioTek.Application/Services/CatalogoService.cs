@@ -612,7 +612,9 @@ public class CatalogoService : ICatalogoService
 
                         if (!jaExiste)
                         {
-                            await CreateAsync(livro);
+                            livro.Id = Guid.NewGuid().ToString();
+                            livro.DataCriacao = DateTime.UtcNow;
+                            await _catalogoRepository.AddAsync(livro);
                             totalImportados++;
 
                             if (!string.IsNullOrEmpty(livro.CodigoBarras))
@@ -634,6 +636,9 @@ public class CatalogoService : ICatalogoService
                 }
             }
         }
+
+        if (totalImportados > 0)
+            LimparCacheCatalogo();
 
         return new
         {
@@ -857,36 +862,75 @@ public class CatalogoService : ICatalogoService
     public async Task<ImportacaoResultado> ImportarPorAssuntoOpenLibraryAsync(string assunto, int limite = 200, int maxPaginas = 5)
     {
         var resultado = new ImportacaoResultado();
-        var totalPorPagina = 50;
+        const int totalPorPagina = 50;
 
-        for (int pagina = 1; pagina <= maxPaginas; pagina++)
+        // Carrega os identificadores existentes uma única vez, evitando uma consulta
+        // ao MongoDB para cada obra retornada pela Open Library.
+        var catalogosExistentes = (await _catalogoRepository.GetAllAsync()).ToList();
+        var titulosAutoresExistentes = catalogosExistentes
+            .Where(c => !string.IsNullOrWhiteSpace(c.Titulo) && !string.IsNullOrWhiteSpace(c.Autor))
+            .Select(c => $"{c.Titulo.Trim()}|{c.Autor.Trim()}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var chavesOpenLibraryExistentes = catalogosExistentes
+            .Where(c => c.Fonte == "OpenLibrary" && !string.IsNullOrWhiteSpace(c.FonteId))
+            .Select(c => c.FonteId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var importados = false;
+
+        for (var pagina = 1; pagina <= maxPaginas && resultado.Importados < limite; pagina++)
         {
             try
             {
                 var offset = (pagina - 1) * totalPorPagina;
                 var url = $"https://openlibrary.org/subjects/{Uri.EscapeDataString(assunto)}.json?limit={totalPorPagina}&offset={offset}";
-                var response = await _httpClient.GetStringAsync(url);
-                var json = JsonDocument.Parse(response);
+                using var response = await _httpClient.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    resultado.Erros++;
+                    break;
+                }
 
-                if (!json.RootElement.TryGetProperty("works", out var works) || works.GetArrayLength() == 0)
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                using var json = await JsonDocument.ParseAsync(stream);
+
+                if (!json.RootElement.TryGetProperty("works", out var works) ||
+                    works.ValueKind != JsonValueKind.Array ||
+                    works.GetArrayLength() == 0)
                     break;
 
                 foreach (var work in works.EnumerateArray())
                 {
+                    if (resultado.Importados >= limite)
+                        break;
+
+                    resultado.TotalProcessados++;
+
                     try
                     {
-                        var titulo = work.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
-                        var autores = work.TryGetProperty("authors", out var a) && a.GetArrayLength() > 0
-                            ? a[0].TryGetProperty("name", out var name) ? name.GetString() ?? "Autor desconhecido" : "Autor desconhecido"
+                        var titulo = work.TryGetProperty("title", out var t) ? t.GetString()?.Trim() ?? "" : "";
+                        if (string.IsNullOrWhiteSpace(titulo))
+                        {
+                            resultado.Erros++;
+                            continue;
+                        }
+
+                        var autor = work.TryGetProperty("authors", out var authors) &&
+                                    authors.ValueKind == JsonValueKind.Array &&
+                                    authors.GetArrayLength() > 0 &&
+                                    authors[0].TryGetProperty("name", out var authorName)
+                            ? authorName.GetString()?.Trim() ?? "Autor desconhecido"
                             : "Autor desconhecido";
-                        var coverId = work.TryGetProperty("cover_id", out var c) ? c.GetInt64().ToString() : null;
 
-                        if (string.IsNullOrEmpty(titulo)) continue;
+                        var fonteId = work.TryGetProperty("key", out var key) ? key.GetString() : null;
+                        var coverId = work.TryGetProperty("cover_id", out var cover) &&
+                                      cover.ValueKind == JsonValueKind.Number
+                            ? cover.GetInt64().ToString()
+                            : null;
 
-                        var existente = (await _catalogoRepository.FindAsync(c =>
-                            c.Titulo == titulo && c.Autor == autores)).FirstOrDefault();
-
-                        if (existente != null)
+                        var chaveTituloAutor = $"{titulo}|{autor}";
+                        if ((!string.IsNullOrWhiteSpace(fonteId) && chavesOpenLibraryExistentes.Contains(fonteId)) ||
+                            titulosAutoresExistentes.Contains(chaveTituloAutor))
                         {
                             resultado.JaExistentes++;
                             continue;
@@ -894,35 +938,45 @@ public class CatalogoService : ICatalogoService
 
                         var catalogo = new Catalogo
                         {
+                            Id = Guid.NewGuid().ToString(),
                             Titulo = titulo,
-                            Autor = autores,
+                            Autor = autor,
                             Imagem = coverId != null ? $"https://covers.openlibrary.org/b/id/{coverId}-L.jpg" : null,
                             Fonte = "OpenLibrary",
-                            FonteId = work.TryGetProperty("key", out var k) ? k.GetString() : "",
+                            FonteId = fonteId ?? "",
                             Generos = new List<string> { assunto },
                             DataCriacao = DateTime.UtcNow
                         };
 
-                        await CreateAsync(catalogo);
+                        await _catalogoRepository.AddAsync(catalogo);
+                        importados = true;
                         resultado.Importados++;
-                        resultado.TotalProcessados++;
 
-                        if (resultado.Importados >= limite)
-                            break;
+                        // Evita duplicar registros entre páginas do mesmo assunto.
+                        titulosAutoresExistentes.Add(chaveTituloAutor);
+                        if (!string.IsNullOrWhiteSpace(fonteId))
+                            chavesOpenLibraryExistentes.Add(fonteId);
                     }
-                    catch { }
+                    catch
+                    {
+                        resultado.Erros++;
+                    }
                 }
 
-                if (resultado.Importados >= limite)
+                if (works.GetArrayLength() < totalPorPagina)
                     break;
 
                 await Task.Delay(300);
             }
-            catch (Exception)
+            catch
             {
+                resultado.Erros++;
                 break;
             }
         }
+
+        if (importados)
+            LimparCacheCatalogo();
 
         return resultado;
     }

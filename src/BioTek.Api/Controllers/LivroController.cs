@@ -139,6 +139,14 @@ public class LivroController : ControllerBase
             if (livro == null)
                 return BadRequest(new { mensagem = "Dados inválidos" });
 
+            // Preserva a privacidade em atualizações parciais.
+            // Só altera Publico quando o campo foi enviado explicitamente.
+            var possuiPublico = body.EnumerateObject().Any(p =>
+                string.Equals(p.Name, "publico", StringComparison.OrdinalIgnoreCase));
+
+            if (!possuiPublico)
+                livro.Publico = existente.Publico;
+
             // Extrai estrelas
             int? estrelas = null;
             if (body.TryGetProperty("estrelas", out var estrelasElement) &&

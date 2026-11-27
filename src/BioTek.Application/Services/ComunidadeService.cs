@@ -1,6 +1,7 @@
 using BioTek.Domain.Entities;
 using BioTek.Domain.Enums;
 using BioTek.Domain.Interfaces;
+using System.Globalization;
 
 namespace BioTek.Application.Services;
 
@@ -187,8 +188,29 @@ public class ComunidadeService : IComunidadeService
             livroMap.TryGetValue(av.IdLivro, out var livro);
             if (livro == null) continue;
 
+            // O ID da conversa precisa ser igual ao gerado pelo FeedComponent:
+            // {idLivro}__livro_avaliado__{data da avaliação em ISO UTC com milissegundos}
+            var dataAvaliacao = av.DataAtualizacao ?? av.DataCriacao;
+
+            var dataUtc = dataAvaliacao.Kind == DateTimeKind.Local
+                ? dataAvaliacao.ToUniversalTime()
+                : DateTime.SpecifyKind(dataAvaliacao, DateTimeKind.Utc);
+
+            var timestampAvaliacao = dataUtc.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                CultureInfo.InvariantCulture
+            );
+
+            var idAtividadeAvaliacao =
+                $"{av.IdLivro}__livro_avaliado__{timestampAvaliacao}";
+
+            // Mostra somente os comentários vinculados a esta avaliação.
+            // Assim, comentários genéricos do livro ou de outra avaliação
+            // não aparecem misturados nesta conversa.
             var comentariosDoLivro = comentariosPorLivro
                 .GetValueOrDefault(av.IdLivro, new List<ComentarioLivro>())
+                .Where(c => c.IdAtividade == idAtividadeAvaliacao && !c.Flagged)
+                .OrderBy(c => c.DataCriacao)
                 .Select(c => new
                 {
                     c.Id,
@@ -199,7 +221,8 @@ public class ComunidadeService : IComunidadeService
                         cu.Id,
                         cu.Nickname
                     } : null
-                }).ToList();
+                })
+                .ToList();
 
             var curtidasAtividade = curtidasPorAtividade.GetValueOrDefault(av.Id, new List<Curtida>());
 

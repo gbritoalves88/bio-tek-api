@@ -117,4 +117,24 @@ public class ComentarioLivroController : ControllerBase
             return Unauthorized(new { mensagem = "Usuário não autenticado" });
         }
     }
+
+    [HttpGet("livro/{idLivro}/atividades")]
+    [EnableRateLimiting("GeneralPolicy")]
+    public async Task<IActionResult> GetAtividadesPorLivro(string idLivro)
+    {
+        var usuarioId = GetUsuarioId();
+
+        var livro = await _livroService.GetPorIdAsync(idLivro);
+
+        if (livro == null ||
+            (!livro.Publico && livro.IdUsuario != usuarioId))
+        {
+            return NotFound();
+        }
+
+        var atividades = await _comentarioService
+            .GetAtividadesPorLivroAsync(idLivro);
+
+        return Ok(atividades);
+    }
 }

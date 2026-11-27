@@ -9,4 +9,5 @@ public interface IComentarioLivroService
     Task<IEnumerable<object>> GetPorLivroAsync(string livroId);
     Task<IEnumerable<object>> GetPorAtividadeAsync(string idAtividade); // 🆕
     Task<ComentarioLivro?> GetPorIdAsync(string id); // 🆕
+    Task<IEnumerable<object>> GetAtividadesPorLivroAsync(string livroId);
 }

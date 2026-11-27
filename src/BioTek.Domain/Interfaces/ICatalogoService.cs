@@ -33,7 +33,7 @@ public interface ICatalogoService
     Task<object> ImportarPorLetrasAsync(int livrosPorLetra = 40, int atrasoMs = 500);
     
     // Biblioteca pessoal
-    Task<Livro?> AdicionarABibliotecaPessoalAsync(string catalogoId, string usuarioId, int? status = null);
+    Task<Livro?> AdicionarABibliotecaPessoalAsync(string catalogoId, string usuarioId, int? status = null, bool publico = true);
     
     // Estatísticas
     Task<int> GetTotalCountAsync();

@@ -380,7 +380,7 @@ public class CatalogoService : ICatalogoService
 
     // ========== BIBLIOTECA PESSOAL ==========
 
-    public async Task<Livro?> AdicionarABibliotecaPessoalAsync(string catalogoId, string usuarioId, int? status = null)
+    public async Task<Livro?> AdicionarABibliotecaPessoalAsync(string catalogoId, string usuarioId, int? status = null, bool publico = true)
     {
         var catalogo = await _catalogoRepository.GetByIdAsync(catalogoId);
         if (catalogo == null)
@@ -406,6 +406,7 @@ public class CatalogoService : ICatalogoService
             Editora = catalogo.Editora,
             Idioma = catalogo.Idioma,
             Status = status.HasValue ? (StatusLeitura)status.Value : StatusLeitura.QueroLer,
+            Publico = publico,
             DataCriacao = DateTime.UtcNow,
             Tipo = "livro"
         };

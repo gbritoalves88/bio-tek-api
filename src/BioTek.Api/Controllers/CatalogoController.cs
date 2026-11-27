@@ -177,13 +177,16 @@ public class CatalogoController : ControllerBase
     [Authorize]
     [HttpPost("{id}/adicionar-biblioteca")]
     [EnableRateLimiting("GeneralPolicy")]
-    public async Task<IActionResult> AdicionarBiblioteca(string id, [FromQuery] int? status = null)
+    public async Task<IActionResult> AdicionarBiblioteca(
+        string id,
+        [FromQuery] int? status = null,
+        [FromQuery] bool publico = true)
     {
         var usuarioId = GetUsuarioId();
         
         try
         {
-            var livro = await _catalogoService.AdicionarABibliotecaPessoalAsync(id, usuarioId, status);
+            var livro = await _catalogoService.AdicionarABibliotecaPessoalAsync(id, usuarioId, status, publico);
             return Ok(livro);
         }
         catch (InvalidOperationException ex)

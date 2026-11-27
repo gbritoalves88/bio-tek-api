@@ -75,6 +75,7 @@ public class ComunidadeService : IComunidadeService
                 a.IdUsuario != meuId &&
                 (a.DataAtualizacao ?? a.DataCriacao) >= ultimosDias),
             Livros = _livroRepository.FindAsync(l => 
+                l.Publico &&
                 l.IdUsuario != null && 
                 l.IdUsuario != meuId &&
                 (l.DataAtualizacao ?? l.DataCriacao) >= ultimosDias)
@@ -152,7 +153,7 @@ public class ComunidadeService : IComunidadeService
 
             usuarioMap.TryGetValue(atividade.IdUsuario, out var u);
             livroMap.TryGetValue(atividade.IdLivro, out var livro);
-            if (livro == null) continue;
+            if (livro == null || !livro.Publico) continue;
 
             var curtidasAtividade = curtidasPorAtividade.GetValueOrDefault(atividade.Id, new List<Curtida>());
 
@@ -186,7 +187,7 @@ public class ComunidadeService : IComunidadeService
 
             usuarioMap.TryGetValue(av.IdUsuario, out var u);
             livroMap.TryGetValue(av.IdLivro, out var livro);
-            if (livro == null) continue;
+            if (livro == null || !livro.Publico) continue;
 
             // O ID da conversa precisa ser igual ao gerado pelo FeedComponent:
             // {idLivro}__livro_avaliado__{data da avaliação em ISO UTC com milissegundos}
